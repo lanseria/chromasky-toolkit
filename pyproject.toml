@@ -1,0 +1,19 @@
+[project]
+name = "chromasky-toolkit"
+version = "0.1.0"
+description = "A Python toolkit to fetch, process, and generate sunset glow index maps."
+authors = [
+    { name = "Lanseria", email = "zhangchao564265135@hotmail.com" },
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cartopy>=0.25.0",
+    "cdsapi>=0.7.6",
+    "matplotlib>=3.10.5",
+    "netcdf4>=1.7.2",
+    "pandas>=2.3.1",
+    "python-dotenv>=1.1.1",
+    "scipy>=1.16.1",
+    "xarray>=2025.7.1",
+]
