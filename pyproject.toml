@@ -7,6 +7,7 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.12"
+# 核心依赖项
 dependencies = [
     "cartopy>=0.25.0",
     "cdsapi>=0.7.6",
@@ -17,3 +18,15 @@ dependencies = [
     "scipy>=1.16.1",
     "xarray>=2025.7.1",
 ]
+
+# --- 新增的可选依赖项 ---
+[project.optional-dependencies]
+# 用于支持 Jupyter Notebook 的依赖组
+notebook = [
+    "jupyterlab>=4.0", # 现代化的 Jupyter 环境，会自动安装 ipython, ipykernel 等
+]
+# -------------------------
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
