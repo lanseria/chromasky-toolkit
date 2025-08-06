@@ -1,11 +1,12 @@
 # src/chromasky_toolkit/map_drawer.py
-
 import argparse
 import logging
 from pathlib import Path
+import io
 
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.font_manager as fm
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from cartopy.io import shapereader
@@ -20,140 +21,176 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("MapDrawer")
 
 # --- 关键修正：智能字体设置 ---
+# --- 最终解决方案：主动扫描并设置可用中文字体 ---
 CHINESE_FONT_FOUND = False
 try:
-    # 只有当 config.MAP_FONT 有具体值时，才尝试设置它
-    if config.MAP_FONT:
+    # 步骤 1: 检查 config.py 中是否指定了特定字体
+    if hasattr(config, 'MAP_FONT') and config.MAP_FONT:
         plt.rcParams['font.sans-serif'] = [config.MAP_FONT]
-        logger.info(f"已尝试设置指定字体: '{config.MAP_FONT}'。")
+        logger.info(f"已根据配置尝试设置指定字体: '{config.MAP_FONT}'。")
     
-    # 无论是否设置特定字体，都设置这个以正确显示负号
+    # 步骤 2: 无论如何，都设置这个以正确显示负号
     plt.rcParams['axes.unicode_minus'] = False
-    
-    # 一个简单的检查，看系统默认字体是否支持中文“你”
-    # 这比检查特定字体更通用
-    if 'SimHei' in plt.rcParams['font.sans-serif'] or \
-        'Microsoft YaHei' in plt.rcParams['font.sans-serif'] or \
-        'PingFang SC' in plt.rcParams['font.sans-serif']:
+
+    # 步骤 3: 检查当前字体是否能显示中文“你”
+    # 如果可以，我们任务完成
+    if any('你好' in f.name for f in fm.fontManager.ttflist if '你好' in f.name): # Simplified check for common Chinese font names
         CHINESE_FONT_FOUND = True
-        logger.info(f"检测到系统默认字体支持中文。当前字体列表: {plt.rcParams['font.sans-serif']}")
     
+    # 步骤 4: 如果上面的检查失败，则主动扫描系统字体
+    if not CHINESE_FONT_FOUND:
+        logger.info("当前字体不支持中文，开始主动扫描系统可用中文字体...")
+        
+        # fm.fontManager.ttflist 包含了所有 matplotlib 扫描到的字体
+        for font in fm.fontManager.ttflist:
+            # 我们通过字体的名字来判断。常见的中文名包括 Heiti, Hei, Ming, Song, FangSong, Kai
+            if 'Heiti' in font.name or 'Hei' in font.name or 'Song' in font.name or 'FangSong' in font.name or 'Kai' in font.name or 'PingFang' in font.name or 'Microsoft YaHei' in font.name:
+                logger.info(f"✅ 找到可用的中文字体: '{font.name}'。将其设置为默认字体。")
+                plt.rcParams['font.sans-serif'] = [font.name]
+                CHINESE_FONT_FOUND = True
+                break # 找到第一个就停止
+
+    if CHINESE_FONT_FOUND:
+        logger.info(f"最终使用的字体列表: {plt.rcParams['font.sans-serif']}")
+    else:
+        logger.warning("扫描完毕，系统中仍未找到任何可用的中文字体。中文将无法正常显示。")
+
 except Exception as e:
-    logger.warning(f"设置字体时发生错误: {e}")
+    logger.warning(f"设置字体时发生未知错误: {e}")
 
-if not CHINESE_FONT_FOUND:
-    logger.warning("未检测到主流中文字体，中文可能无法正常显示。")
 
-def generate_map_from_grid(data_grid: xr.DataArray, title: str, output_path: Path):
+# --- 4. 核心绘图函数 ---
+def generate_map_from_grid(
+    score_grid: xr.DataArray, 
+    title: str, 
+    output_path: Path | None = None
+) -> bytes | None:
     """
     根据给定的数据网格生成一张精美的暗色主题地图。
-    *** 已更新为最终的暗色主题样式 ***
+
+    Args:
+        score_grid (xr.DataArray): 包含地理坐标和数值的数据网格。
+        title (str): 地图的标题。
+        output_path (Path | None, optional): 保存地图的文件路径。如果为 None，则不保存文件。
+
+    Returns:
+        bytes | None: 成功则返回 PNG 图像的二进制数据，失败则返回 None。
     """
-    print(f"--- 正在为 '{title}' 生成暗色主题地图... ---")
+    logger.info(f"--- [绘图] 开始生成地图: {title} ---")
+    fig = None  # 初始化 fig 变量
+    try:
+        # 数据预处理
+        scores_for_smoothing = score_grid.fillna(0).values
+        smoothed_scores = gaussian_filter(scores_for_smoothing, sigma=1.5)
+        smoothed_grid = xr.DataArray(smoothed_scores, coords=score_grid.coords, dims=score_grid.dims)
+        interp_factor = 4
+        orig_lats, orig_lons = smoothed_grid.latitude.values, smoothed_grid.longitude.values
+        new_lats = np.linspace(orig_lats.min(), orig_lats.max(), len(orig_lats) * interp_factor)
+        new_lons = np.linspace(orig_lons.min(), orig_lons.max(), len(orig_lons) * interp_factor)
+        high_res_grid = smoothed_grid.interp(latitude=new_lats, longitude=new_lons, method='cubic')
+        lats, lons, scores = high_res_grid.latitude.values, high_res_grid.longitude.values, high_res_grid.values
 
-    # --- 数据预处理 ---
-    # 高斯平滑和插值，让视觉效果更平滑
-    scores_for_smoothing = data_grid.fillna(0).values
-    smoothed_scores = gaussian_filter(scores_for_smoothing, sigma=1.5)
-    smoothed_grid = xr.DataArray(smoothed_scores, coords=data_grid.coords, dims=data_grid.dims)
-    
-    interp_factor = 4
-    orig_lats, orig_lons = smoothed_grid.latitude.values, smoothed_grid.longitude.values
-    new_lats = np.linspace(orig_lats.min(), orig_lats.max(), len(orig_lats) * interp_factor)
-    new_lons = np.linspace(orig_lons.min(), orig_lons.max(), len(orig_lons) * interp_factor)
-    high_res_grid = smoothed_grid.interp(latitude=new_lats, longitude=new_lons, method='cubic')
-    
-    lats, lons, scores = high_res_grid.latitude.values, high_res_grid.longitude.values, high_res_grid.values
-    
-    # 过滤掉非常低的值，让地图主区域更突出
-    if np.nanmax(scores) > 0:
-        scores[scores < np.nanmax(scores) * 0.05] = np.nan
+        if np.all(np.isnan(scores)) or np.nanmax(scores) == 0:
+            logger.warning("输入数据为空或全为零，将绘制一张空白底图。")
+            scores[:] = np.nan
+        else:
+            scores[scores < np.nanmax(scores) * 0.05] = np.nan
 
-    proj = ccrs.PlateCarree()
-    fig = plt.figure(figsize=(12, 10), facecolor='black')
-    ax = fig.add_subplot(1, 1, 1, projection=proj)
-    ax.set_facecolor('black')
-    ax.set_extent([config.AREA_EXTRACTION[k] for k in ["west", "east", "south", "north"]], crs=proj)
+        # 绘图设置
+        proj = ccrs.PlateCarree()
+        fig = plt.figure(figsize=(12, 10), facecolor='black')
+        ax = fig.add_subplot(1, 1, 1, projection=proj)
+        ax.set_facecolor('black')
+        area_bounds = [config.AREA_EXTRACTION[k] for k in ["west", "east", "south", "north"]]
+        ax.set_extent(area_bounds, crs=ccrs.PlateCarree())
+        ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor='#0c0a09', zorder=0)
+        ax.add_feature(cfeature.LAND.with_scale('50m'), facecolor='#1c1917', edgecolor='none', zorder=0)
 
-    # 1. 设置深色背景
-    ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor='#0c0a09', zorder=0)
-    ax.add_feature(cfeature.LAND.with_scale('50m'), facecolor='#1c1917', edgecolor='none', zorder=0)
+        # 绘制核心数据
+        if not np.all(np.isnan(scores)):
+            chromasky_cmap = mcolors.LinearSegmentedColormap.from_list("chromasky", list(zip(config.CHROMA_SKY_COLOR_NODES, config.CHROMA_SKY_COLORS)))
+            levels = np.linspace(np.nanmin(scores), np.nanmax(scores), 100)
+            contour_fill = ax.contourf(lons, lats, scores, levels=levels, cmap=chromasky_cmap, transform=proj, extend='max', zorder=1)
+            cbar = fig.colorbar(contour_fill, ax=ax, orientation='vertical', pad=0.02, shrink=0.8)
+            cbar.set_label(f"{score_grid.attrs.get('long_name', score_grid.name)} ({score_grid.attrs.get('units', 'N/A')})", color='white')
+            cbar.ax.yaxis.set_tick_params(color='white')
+            plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
 
-    # 2. 使用您喜欢的 ChromaSky 色彩映射表
-    colors = ["#3b82f6", "#fde047", "#f97316", "#ef4444", "#ec4899"] # 蓝 -> 黄 -> 橙 -> 红 -> 粉
-    nodes = [0.0, 0.5, 0.7, 0.85, 1.0]
-    chromasky_cmap = mcolors.LinearSegmentedColormap.from_list("chromasky", list(zip(nodes, colors)))
-    
-    # 动态设置等值线级别
-    min_val, max_val = np.nanmin(scores), np.nanmax(scores)
-    levels = np.linspace(min_val, max_val, 100) if min_val < max_val else [min_val]
-    
-    # 绘制填充等值线图 (这是我们的核心数据)
-    contour_fill = ax.contourf(lons, lats, scores, levels=levels, cmap=chromasky_cmap, transform=proj, extend='max', zorder=1)
+        # 添加地理边界
+        if not all([config.CHINA_SHP_PATH.exists(), config.NINE_DASH_LINE_SHP_PATH.exists()]):
+            logger.error(f"地图数据文件未在 '{config.MAP_DATA_DIR}' 目录中找到。请运行 `python tools/setup_map_data.py`")
+        else:
+            ax.add_geometries(shapereader.Reader(str(config.CHINA_SHP_PATH)).geometries(), proj, facecolor='none', edgecolor='#a8a29e', linewidth=0.5, zorder=2)
+            ax.add_geometries(shapereader.Reader(str(config.NINE_DASH_LINE_SHP_PATH)).geometries(), proj, facecolor='none', edgecolor='#a8a29e', linewidth=1.0, zorder=2)
+        ax.add_feature(cfeature.COASTLINE.with_scale('50m'), edgecolor='#78716c', linewidth=0.5, zorder=2)
 
-    
-    if not all([config.CHINA_SHP_PATH.exists(), config.NINE_DASH_LINE_SHP_PATH.exists()]):
-        logger.error(f"地图数据文件未在 '{config.MAP_DATA_DIR}' 目录中找到。")
-    ax.add_geometries(shapereader.Reader(str(config.CHINA_SHP_PATH)).geometries(), proj,
-                        edgecolor='#a8a29e', facecolor='none', linewidth=0.5, zorder=2)
-    ax.add_geometries(shapereader.Reader(str(config.NINE_DASH_LINE_SHP_PATH)).geometries(), proj,
-                        edgecolor='#a8a29e', facecolor='none', linewidth=1.0, zorder=2)
-    ax.add_feature(cfeature.COASTLINE.with_scale('50m'), edgecolor='#78716c', linewidth=0.5, zorder=2)
+        # 添加城市标注
+        if config.CITIES_CSV_PATH.exists():
+            df_cities = pd.read_csv(config.CITIES_CSV_PATH)
+            ax.plot(df_cities['lon'], df_cities['lat'], 'o', color='white', markersize=2, alpha=0.7, transform=proj, zorder=4)
+            for _, city in df_cities.iterrows():
+                display_name = city['name'] if CHINESE_FONT_FOUND else city['name_en']
+                ax.text(city['lon'] + 0.1, city['lat'] + 0.1, display_name, color='white', fontsize=8, alpha=0.8, transform=proj, zorder=4)
+        else:
+            logger.warning(f"未找到城市数据文件: {config.CITIES_CSV_PATH}，跳过城市绘制。")
 
-    # 4. (可选) 添加城市标注
-    if config.CITIES_CSV_PATH.exists():
-        df_cities = pd.read_csv(config.CITIES_CSV_PATH)
-        ax.plot(df_cities['lon'], df_cities['lat'], 'o', color='white', markersize=2, alpha=0.7, transform=proj, zorder=4)
+        # 添加网格线和标题
+        gl = ax.gridlines(crs=proj, draw_labels=True, linewidth=0.5, color='#44403c', alpha=0.8, linestyle='--')
+        gl.top_labels, gl.right_labels = False, False
+        gl.xlabel_style, gl.ylabel_style = {'color': 'white', 'size': 10}, {'color': 'white', 'size': 10}
+        ax.set_title(title, fontsize=18, color='white', pad=20)
+        
+        # 将图像保存到内存中
+        img_buffer = io.BytesIO()
+        plt.savefig(img_buffer, format='png', dpi=150, bbox_inches='tight', pad_inches=0.1, transparent=True, facecolor=fig.get_facecolor())
+        img_buffer.seek(0)
+        image_data = img_buffer.read()
+        
+        # 可选：保存到磁盘
+        if output_path:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, 'wb') as f:
+                f.write(image_data)
+            logger.info(f"--- [绘图] 地图已成功保存到: {output_path} ---")
 
-    # 5. 设置白色的网格线、标题和标签
-    gl = ax.gridlines(crs=proj, draw_labels=True, linewidth=0.5, color='#44403c', alpha=0.8, linestyle='--')
-    gl.top_labels = False
-    gl.right_labels = False
-    gl.xlabel_style = {'color': 'white', 'size': 10}
-    gl.ylabel_style = {'color': 'white', 'size': 10}
+        return image_data
 
-    ax.set_title(title, fontsize=18, color='white', pad=20)
-    cbar = fig.colorbar(contour_fill, ax=ax, orientation='vertical', pad=0.02, shrink=0.8)
-    cbar.set_label(f"{data_grid.attrs.get('long_name', data_grid.name)} ({data_grid.attrs.get('units', 'N/A')})", color='white')
-    cbar.ax.yaxis.set_tick_params(color='white')
-    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
-
-    # 6. 保存为带透明背景的图片
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_path, dpi=200, bbox_inches='tight', pad_inches=0.1, transparent=True, facecolor=fig.get_facecolor())
-    plt.close(fig)
-    print(f"✅ 暗色主题地图已成功保存到: {output_path}")
+    except Exception as e:
+        logger.error(f"❌ 绘图或保存时发生错误: {e}", exc_info=True)
+        return None
+    finally:
+        # 确保无论如何都关闭图形，释放内存
+        if fig:
+            plt.close(fig)
 
 
-# --- 7. 更新 __main__ 部分以进行自测 ---
+# --- 5. 用于自测的 __main__ 部分 ---
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="地图绘制模块自测工具")
+    parser.add_argument("-o", "--output", type=str, default="map_drawer_self_test.png", help="输出图片的文件名。")
+    args = parser.parse_args()
+
     logger.info("===== 正在以独立模式运行 map_drawer.py 进行自测 =====")
     
-    # 创建一个模拟的数据网格 (DataArray)
+    # 创建模拟数据
     lats = np.arange(config.AREA_EXTRACTION["south"], config.AREA_EXTRACTION["north"], 0.25)
     lons = np.arange(config.AREA_EXTRACTION["west"], config.AREA_EXTRACTION["east"], 0.25)
     lon_grid, lat_grid = np.meshgrid(lons, lats)
     center_lon, center_lat = 115, 30
     sigma_lon, sigma_lat = 10, 8
     exponent = -((lon_grid - center_lon)**2 / (2 * sigma_lon**2) + (lat_grid - center_lat)**2 / (2 * sigma_lat**2))
-    scores = 1.0 * np.exp(exponent) # 云量范围是 0-1
-    sample_grid = xr.DataArray(
-        scores, 
-        coords={'latitude': lats, 'longitude': lons}, 
-        dims=['latitude', 'longitude'],
-        name='High Cloud Cover',
-        attrs={'units': '(0-1)', 'long_name': 'High Cloud Cover'}
-    )
+    scores = 0.8 * np.exp(exponent) # 模拟云量 (0-1)
+    sample_grid = xr.DataArray(scores, coords={'latitude': lats, 'longitude': lons}, dims=['latitude', 'longitude'],
+                                name='hcc', attrs={'units': '(0-1)', 'long_name': 'High Cloud Cover'})
 
-    # 定义输出路径
     output_dir = config.PROJECT_ROOT / "debug_maps"
-    output_file_path = output_dir / "map_drawer_self_test.png"
+    output_file_path = output_dir / args.output
 
     # 调用绘图函数
-    generate_map_from_grid(
-        score_grid=sample_grid, 
-        title="Map Drawer Self-Test Map", 
-        output_path=output_file_path
-    )
+    img_bytes = generate_map_from_grid(score_grid=sample_grid, title="Map Drawer Self-Test Map", output_path=output_file_path)
     
-    print(f"\n✅ 模块自测成功！验证地图已保存到: {output_file_path.resolve()}")
+    if img_bytes:
+        print(f"\n✅ 模块自测成功！验证地图已保存到: {output_file_path.resolve()}")
+        print(f"   并成功返回了 {len(img_bytes) / 1024:.1f} KB 的图像数据。")
+    else:
+        print("\n❌ 模块自测失败。")
