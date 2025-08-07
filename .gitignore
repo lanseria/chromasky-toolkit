@@ -31,3 +31,6 @@ outputs/
 *.egg-info
 
 map_data/
+
+project_context.txt
+.DS_Store

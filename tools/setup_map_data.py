@@ -5,6 +5,9 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+
+from chromasky_toolkit import config
+
 # --- 日志配置 ---
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -15,10 +18,8 @@ logger = logging.getLogger("MapDataSetup")
 # 这个 GitHub 仓库包含了中国省、市、县级的 Shapefile 文件
 DATA_URL = "https://github.com/dongli/china-shapefiles/archive/refs/heads/master.zip"
 
-# 确定项目根目录 (此脚本位于 tools/ 下，所以根目录是上一级目录)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # 定义最终存放地图数据的目录
-TARGET_DIR = PROJECT_ROOT / "map_data"
+TARGET_DIR = config.MAP_DATA_DIR
 
 
 def setup_map_data():
