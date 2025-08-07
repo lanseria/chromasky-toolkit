@@ -63,15 +63,19 @@ except Exception as e:
 def generate_map_from_grid(
     score_grid: xr.DataArray, 
     title: str, 
-    output_path: Path | None = None
+    output_path: Path | None = None,
+    active_region_mask: xr.DataArray | None = None # 新增的可选参数
 ) -> bytes | None:
     """
     根据给定的数据网格生成一张精美的暗色主题地图。
+    *** 新版本: 可以额外绘制一个活动区域掩码的轮廓。***
 
     Args:
         score_grid (xr.DataArray): 包含地理坐标和数值的数据网格。
         title (str): 地图的标题。
         output_path (Path | None, optional): 保存地图的文件路径。如果为 None，则不保存文件。
+        active_region_mask (xr.DataArray | None, optional): 
+            一个布尔类型的掩码，用于在图上高亮显示计算区域。
 
     Returns:
         bytes | None: 成功则返回 PNG 图像的二进制数据，失败则返回 None。
@@ -106,6 +110,26 @@ def generate_map_from_grid(
         ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor='#0c0a09', zorder=0)
         ax.add_feature(cfeature.LAND.with_scale('50m'), facecolor='#1c1917', edgecolor='none', zorder=0)
 
+
+        # --- 核心改动：绘制活动区域掩码 ---
+        if active_region_mask is not None:
+            logger.info("正在绘制活动区域掩码轮廓...")
+            # 将布尔掩码转换为浮点数（True->1.0, False->0.0）以便绘制等高线
+            mask_values = active_region_mask.astype(float)
+            
+            # 我们只关心值为 0.5 的等高线，这正好是 True 和 False 的边界
+            ax.contour(
+                active_region_mask.longitude, 
+                active_region_mask.latitude,
+                mask_values,
+                levels=[0.5], # 只画出 0.5 的等高线，即区域的边界
+                colors='cyan',  # 使用醒目的青色
+                linewidths=1.5,
+                linestyles='--', # 使用虚线
+                transform=proj,
+                zorder=3  # zorder 确保它在数据之上，在城市标注之下
+            )
+        
         # 绘制核心数据
         if not np.all(np.isnan(scores)):
             chromasky_cmap = mcolors.LinearSegmentedColormap.from_list("chromasky", list(zip(config.CHROMA_SKY_COLOR_NODES, config.CHROMA_SKY_COLORS)))
