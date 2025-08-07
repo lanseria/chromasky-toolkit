@@ -74,3 +74,16 @@ FIGURE_OUTPUTS_DIR: Path = OUTPUTS_DIR / "figures"
 MAP_FONT: str | None = None # 或者直接删除这一行
 CHROMA_SKY_COLORS: List[str] = ["#3b82f6", "#fde047", "#f97316", "#ef4444", "#ec4899"]
 CHROMA_SKY_COLOR_NODES: List[float] = [0.0, 0.5, 0.7, 0.85, 1.0]
+
+
+# --- 7. GFS 预报数据配置 (已更新为单一请求结构) ---
+GFS_BASE_URL: str = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
+
+# 定义一次请求中需要的所有变量和层级
+GFS_VARS: List[str] = [
+    "TCDC", # Total Cloud Cover
+    "HCDC", # High Cloud Cover
+    "MCDC", # Middle Cloud Cover
+    "LCDC", # Low Cloud Cover
+    "HGT",  # Geopotential Height (用于云底高度)
+]
