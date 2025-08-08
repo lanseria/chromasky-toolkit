@@ -18,9 +18,9 @@ class GlowIndexCalculator:
     CLOUD_THRESHOLD = 0.1       # 头顶高云覆盖率的最低阈值，低于此值指数为0
     OPTIMAL_HCC = 0.5           # 得分最高的最优高云覆盖率 (50%)
     
-    MAX_SEARCH_DISTANCE_KM = 400.0
+    MAX_SEARCH_DISTANCE_KM = 500.0
     SEARCH_STEP_KM = 10.0
-    OPTIMAL_DISTANCE_KM = 350.0
+    OPTIMAL_DISTANCE_KM = 400.0
     
     EARTH_RADIUS_KM = 6371.0
 
