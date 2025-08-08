@@ -40,8 +40,10 @@ LOCAL_TZ: str = "Asia/Shanghai"
 
 # --- 5. 时间配置 ---
 # 关注的日出/日落时间段 (本地时间, 24小时制)
-SUNRISE_EVENT_TIMES: List[str] = ["04:00", "05:00", "06:00", "07:00", "08:00"]
-SUNSET_EVENT_TIMES: List[str] = ["18:00", "19:00", "20:00", "21:00"]
+# SUNRISE_EVENT_TIMES: List[str] = ["04:00", "05:00", "06:00", "07:00", "08:00"]
+SUNRISE_EVENT_TIMES: List[str] = ["05:00"]
+# SUNSET_EVENT_TIMES: List[str] = ["18:00", "19:00", "20:00", "21:00"]
+SUNSET_EVENT_TIMES: List[str] = ["19:00"]
 
 # --- 6. 项目核心文件路径配置 ---
 # 这是一个非常好的实践，将所有路径常量化
