@@ -6,43 +6,46 @@ from typing import Tuple, Dict, List
 import xarray as xr
 from tqdm.auto import tqdm
 
-# --- 核心改动：从新的 astronomy 模块导入服务 ---
 from .astronomy import AstronomyService
 
 class GlowIndexCalculator:
     """
-    根据高云覆盖(hcc)数据，计算指定地点或整个网格的火烧云指数。
+    根据多种气象因子，使用混合评分模型计算火烧云指数。
     """
     
     # --- 可调参数 ---
-    CLOUD_THRESHOLD = 0.1       # 头顶高云覆盖率的最低阈值，低于此值指数为0
-    OPTIMAL_HCC = 0.5           # 得分最高的最优高云覆盖率 (50%)
-    
+    CLOUD_THRESHOLD = 0.1
     MAX_SEARCH_DISTANCE_KM = 500.0
     SEARCH_STEP_KM = 10.0
     OPTIMAL_DISTANCE_KM = 400.0
-    
     EARTH_RADIUS_KM = 6371.0
-
-    CONSECUTIVE_CLEAR_STEPS = 3 # 需要连续3个步长（30km）都是晴空才算找到边界
     CLOUD_ZERO_THRESHOLD = 0.1
 
+    # 定义所有可用的评分因子名称
     ALL_FACTORS = ['score_boundary', 'score_hcc', 'score_mcc', 'score_lcc']
+    
+    # 权重现在只用于“品质因子”的加权平均
+    DEFAULT_WEIGHTS = {
+        'score_boundary': 0.9,  # 云边界距离是最重要的品质因子
+        'score_hcc':      0.1   # 高云形态是次要的品质因子
+    }
+    # (注意: mcc 和 lcc 的权重不再需要，因为它们将作为乘法项)
 
-    def __init__(self, weather_data: xr.Dataset):
-        """
-        初始化计算器。
-
-        Args:
-            weather_data (xr.Dataset): 一个 xarray Dataset，必须包含 'hcc', 'mcc', 'lcc' 三个 DataArray。
-        """
+    def __init__(self, weather_data: xr.Dataset, weights: Dict[str, float] = None):
+        """初始化计算器，可以传入自定义的品质因子权重。"""
         required_vars = ['hcc', 'mcc', 'lcc']
         if not all(var in weather_data for var in required_vars):
             raise KeyError(f"weather_data 中必须包含以下变量: {required_vars}")
             
         self.weather_data = weather_data
         self.astro_service = AstronomyService()
-        logging.info("GlowIndexCalculator 初始化成功，已加载 hcc, mcc, lcc 数据。")
+        
+        if weights:
+            self.weights = self.DEFAULT_WEIGHTS.copy()
+            self.weights.update(weights)
+        else:
+            self.weights = self.DEFAULT_WEIGHTS.copy()
+        logging.info("GlowIndexCalculator 初始化成功，使用品质因子权重: %s", self.weights)
     
     # --- 辅助方法 ---
     def _get_value_at_point(self, var_name: str, lat: float, lon: float) -> float:
@@ -64,64 +67,97 @@ class GlowIndexCalculator:
         else:
             score = 1.0 - (distance_km - self.OPTIMAL_DISTANCE_KM) / (self.MAX_SEARCH_DISTANCE_KM - self.OPTIMAL_DISTANCE_KM)
             return max(0.0, score)
-
-    # --- 因子 2: 高云覆盖率评分 ---
+    
+    # --- 因子 2: 高云覆盖率评分 (新版分段逻辑) ---
     def _score_from_hcc(self, hcc: float) -> float:
-        """根据高云覆盖率计算得分。在 OPTIMAL_HCC 处得分最高，向两侧递减。"""
-        if hcc <= self.OPTIMAL_HCC:
-            # 在 0 到最佳值之间，线性增加
-            return hcc / self.OPTIMAL_HCC if self.OPTIMAL_HCC > 0 else 0.0
-        else:
-            # 在最佳值到 1.0 之间，线性减少
-            denominator = 1.0 - self.OPTIMAL_HCC
-            return 1.0 - (hcc - self.OPTIMAL_HCC) / denominator if denominator > 0 else 0.0
+        """
+        根据高云覆盖率 (hcc, 0-1) 进行分段评分。
+        - 40-80% (0.4-0.8): 1.0分 (最理想)
+        - 80-100% (0.8-1.0): 0.7分 (云量略多)
+        - 10-40% (0.1-0.4): 0.6分 (云量略少)
+        - 0-10% (0.0-0.1): 0.1分 (云量太少，效果不佳)
+        """
+        if 0.4 <= hcc <= 0.8:
+            return 1.0
+        elif hcc > 0.8:
+            return 0.7
+        elif 0.1 <= hcc < 0.4:
+            return 0.6
+        else: # hcc < 0.1
+            return 0.1
 
-    # --- 因子 3: 中云覆盖率评分 ---
+    # --- 因子 3: 中云覆盖率评分 (新版分段逻辑) ---
     def _score_from_mcc(self, mcc: float) -> float:
-        """根据中云覆盖率计算得分。中云越少，分数越高。"""
-        # 线性惩罚：mcc=0 -> score=1; mcc=1 -> score=0
-        return 1.0 - mcc
+        """
+        根据中云覆盖率 (mcc, 0-1) 进行分段评分。
+        - 20-50% (0.2-0.5): 1.0分 (最理想，提供层次感)
+        - 50-80% (0.5-0.8): 0.7分 (略多，可能遮挡高云)
+        - 80-100% (0.8-1.0): 0.3分 (太多，严重遮挡)
+        - 0-20% (0.0-0.2): 0.2分 (太少，缺乏层次)
+        """
+        if 0.2 <= mcc <= 0.5:
+            return 1.0
+        elif 0.5 < mcc <= 0.8:
+            return 0.7
+        elif mcc > 0.8:
+            return 0.3
+        else: # mcc < 0.2
+            return 0.2
 
-    # --- 因子 4: 低云覆盖率评分 ---
+    # --- 因子 4: 低云覆盖率评分 (新版分段逻辑) ---
     def _score_from_lcc(self, lcc: float) -> float:
-        """根据低云覆盖率计算得分。低云越少，分数越高。"""
-        # 线性惩罚：lcc=0 -> score=1; lcc=1 -> score=0
-        return 1.0 - lcc
+        """
+        根据低云覆盖率 (lcc, 0-1) 进行分段评分。
+        - 0-10% (0.0-0.1): 1.0分 (最理想，不遮挡视线)
+        - 10-30% (0.1-0.3): 0.6分 (有一定遮挡)
+        - 30-50% (0.3-0.5): 0.1分 (严重遮挡)
+        - > 50% (> 0.5): 0.0分 (完全遮挡)
+        """
+        if lcc <= 0.1:
+            return 1.0
+        elif 0.1 < lcc <= 0.3:
+            return 0.6
+        elif 0.3 < lcc <= 0.5:
+            return 0.1
+        else: # lcc > 0.5
+            return 0.0
 
-    # --- 核心计算逻辑 ---
+    # ==========================================================
+    # --- 核心计算逻辑 (已更新为混合模型) ---
+    # ==========================================================
     def calculate_for_point(
         self,
         lat: float,
         lon: float,
         utc_time: datetime,
-        factors: List[str] = ALL_FACTORS
+        factors: List[str] = None # 默认值改为 None
     ) -> Dict[str, float]:
         """
         为单个点计算最终的火烧云指数及其所有分项得分。
-        *** 新版本: 可以选择性地使用一部分因子来计算最终得分。***
+        *** 新版本: 使用混合模型 (品质因子加权平均 * 基础因子乘积)。***
         """
-        # 1. 验证传入的因子是否有效
+        if factors is None:
+            factors = self.ALL_FACTORS
+        
         for factor in factors:
             if factor not in self.ALL_FACTORS:
                 raise ValueError(f"无效的因子: '{factor}'. 可用因子为: {self.ALL_FACTORS}")
 
-        # 2. 获取该点的所有云量数据
         local_hcc = self._get_value_at_point('hcc', lat, lon)
-        local_mcc = self._get_value_at_point('mcc', lat, lon)
-        local_lcc = self._get_value_at_point('lcc', lat, lon)
-
-        # 3. 前提条件检查：头顶无高云，则与云相关的因子得分为0
         if local_hcc < self.CLOUD_THRESHOLD:
-            # 即使头顶无云，边界分数也可能非0，但通常我们认为此时 glow index 为0
+            local_mcc = self._get_value_at_point('mcc', lat, lon)
+            local_lcc = self._get_value_at_point('lcc', lat, lon)
             return {
                 'final_score': 0.0, 'score_boundary': 0.0, 'score_hcc': 0.0,
                 'score_mcc': self._score_from_mcc(local_mcc),
                 'score_lcc': self._score_from_lcc(local_lcc)
             }
 
-        # 4. 无论如何都计算出所有可能的分项得分
         sun_pos = self.astro_service.get_sun_position(lat, lon, utc_time)
         boundary_distance = self._find_cloud_boundary_distance(lat, lon, sun_pos['azimuth'])
+        local_mcc = self._get_value_at_point('mcc', lat, lon) # 确保即使不在前提条件中也计算
+        local_lcc = self._get_value_at_point('lcc', lat, lon)
+        
         all_scores = {
             'score_boundary': self._score_from_boundary_distance(boundary_distance),
             'score_hcc': self._score_from_hcc(local_hcc),
@@ -129,14 +165,32 @@ class GlowIndexCalculator:
             'score_lcc': self._score_from_lcc(local_lcc)
         }
 
-        # 5. 根据用户选择的因子计算最终得分
-        final_score = 1.0
-        for factor_name in factors:
-            final_score *= all_scores[factor_name]
+        # --- 混合模型计算 ---
         
-        # 将最终得分添加到要返回的字典中
+        # a. 计算“品质”得分 (对 score_boundary 和 score_hcc 进行加权平均)
+        quality_factors = ['score_boundary', 'score_hcc']
+        total_quality_weight = 0
+        weighted_quality_score_sum = 0
+        for factor_name in quality_factors:
+            if factor_name in factors and factor_name in self.weights:
+                score = all_scores[factor_name]
+                weight = self.weights[factor_name]
+                weighted_quality_score_sum += score * weight
+                total_quality_weight += weight
+                
+        quality_score = weighted_quality_score_sum / total_quality_weight if total_quality_weight > 0 else 0.0
+
+        # b. 计算“基础/通行证”得分 (将 score_mcc 和 score_lcc 相乘)
+        base_factors = ['score_mcc', 'score_lcc']
+        base_score = 1.0
+        for factor_name in base_factors:
+            if factor_name in factors:
+                base_score *= all_scores[factor_name]
+
+        # c. 最终得分 = 品质分 * 基础分
+        final_score = quality_score * base_score
+        
         all_scores['final_score'] = final_score
-        
         return all_scores
 
     def _find_cloud_boundary_distance(self, start_lat: float, start_lon: float, sun_azimuth_deg: float) -> float:
@@ -204,7 +258,10 @@ class GlowIndexCalculator:
         active_mask: xr.DataArray,
         factors: List[str] = ALL_FACTORS # 将参数传递到网格计算中
     ) -> xr.Dataset:
-        """为网格中的活动区域计算火烧云指数，并返回包含所有分数的 Dataset。"""
+        """为网格中的活动区域计算火烧云指数。"""
+        # 如果未指定因子，则默认使用权重字典中定义的所有因子
+        if factors is None:
+            factors = list(self.weights.keys())
         logging.info(f"开始为网格活动区域计算指数，使用因子: {factors}")
         
         # 创建一个空的 Dataset 用于存放所有结果
