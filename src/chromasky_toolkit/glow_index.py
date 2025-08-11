@@ -1,3 +1,5 @@
+# src/chromasky_toolkit/glow_index.py
+
 import logging
 import math
 import numpy as np
@@ -5,6 +7,9 @@ from datetime import datetime
 from typing import Tuple, Dict, List
 import xarray as xr
 from tqdm.auto import tqdm
+import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from functools import partial
 
 from .astronomy import AstronomyService
 
@@ -252,42 +257,78 @@ class GlowIndexCalculator:
             return max(0.0, score)
 
     
+    def _calculate_for_single_index(
+        self, 
+        ij_tuple: Tuple[int, int], 
+        utc_time: datetime, 
+        factors: List[str]
+    ) -> Tuple[int, int, Dict[str, float]]:
+        """
+        这是一个为并行计算设计的工作单元。
+        它接受一个索引元组 (i, j)，执行单点计算，并返回索引和结果。
+        """
+        i, j = ij_tuple
+        lat = self.weather_data.latitude.values[i]
+        lon = self.weather_data.longitude.values[j]
+        scores = self.calculate_for_point(lat, lon, utc_time, factors=factors)
+        return i, j, scores
+    
     def calculate_for_grid(
         self,
         utc_time: datetime,
         active_mask: xr.DataArray,
-        factors: List[str] = ALL_FACTORS # 将参数传递到网格计算中
+        factors: List[str] = None
     ) -> xr.Dataset:
-        """为网格中的活动区域计算火烧云指数。"""
-        # 如果未指定因子，则默认使用权重字典中定义的所有因子
+        """
+        [并行版] 为网格中的活动区域计算火烧云指数。
+        """
         if factors is None:
-            factors = list(self.weights.keys())
-        logging.info(f"开始为网格活动区域计算指数，使用因子: {factors}")
+            factors = self.ALL_FACTORS
+        logging.info(f"开始为网格活动区域并行计算指数，使用因子: {factors}")
         
-        # 创建一个空的 Dataset 用于存放所有结果
-        results_ds = xr.Dataset(
-            {
-                'final_score': xr.full_like(self.weather_data['hcc'], 0.0, dtype=np.float32),
-                'score_boundary': xr.full_like(self.weather_data['hcc'], 0.0, dtype=np.float32),
-                'score_hcc': xr.full_like(self.weather_data['hcc'], 0.0, dtype=np.float32),
-                'score_mcc': xr.full_like(self.weather_data['hcc'], 0.0, dtype=np.float32),
-                'score_lcc': xr.full_like(self.weather_data['hcc'], 0.0, dtype=np.float32),
-            }
-        )
+        results_ds = xr.Dataset({
+            'final_score': xr.full_like(self.weather_data['hcc'], 0.0, dtype=np.float32),
+            'score_boundary': xr.full_like(self.weather_data['hcc'], 0.0, dtype=np.float32),
+            'score_hcc': xr.full_like(self.weather_data['hcc'], 0.0, dtype=np.float32),
+            'score_mcc': xr.full_like(self.weather_data['hcc'], 0.0, dtype=np.float32),
+            'score_lcc': xr.full_like(self.weather_data['hcc'], 0.0, dtype=np.float32),
+        })
         
-        lats, lons = self.weather_data.latitude, self.weather_data.longitude
-        active_indices = np.argwhere(active_mask.values)
+        # 将要计算的索引转换为Python元组列表
+        active_indices = [tuple(idx) for idx in np.argwhere(active_mask.values)]
         
-        with tqdm(total=len(active_indices), desc=f"Calculating Glow Index ({len(factors)} factors)") as pbar:
-            for i, j in active_indices:
-                lat, lon = lats.values[i], lons.values[j]
-                # 将 factors 参数传递给单点计算函数
-                scores = self.calculate_for_point(lat, lon, utc_time, factors=factors)
-                for score_name, value in scores.items():
-                    results_ds[score_name][i, j] = value
-                pbar.update(1)
+        if not active_indices:
+            logging.warning("活动区域为空，无需计算。")
+            return results_ds
+        
+        # 设置并行工作进程数，默认为系统CPU核心数
+        num_workers = os.cpu_count()
+        logging.info(f"将使用 {num_workers} 个工作进程进行并行计算。")
+
+        # 使用 functools.partial 预先填充不变的参数
+        task_function = partial(self._calculate_for_single_index, utc_time=utc_time, factors=factors)
+
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            # 提交所有任务
+            futures = [executor.submit(task_function, ij_tuple) for ij_tuple in active_indices]
+            
+            # 使用 tqdm 和 as_completed 来实时更新进度条
+            progress_desc = f"Calculating Glow Index ({len(factors)} factors)"
+            with tqdm(total=len(futures), desc=progress_desc) as pbar:
+                for future in as_completed(futures):
+                    try:
+                        i, j, scores = future.result()
+                        # 将计算结果填充回 Dataset
+                        for score_name, value in scores.items():
+                            if score_name in results_ds:
+                                results_ds[score_name][i, j] = value
+                    except Exception as e:
+                        logging.error(f"一个并行任务失败: {e}", exc_info=False)
+                    finally:
+                        pbar.update(1) # 保证每次都更新进度条
         
         results_ds.attrs['factors_used'] = str(factors)
+        results_ds.attrs['parallel_computation'] = 'True'
         
-        logging.info("多因子网格计算完成。")
+        logging.info("多因子网格并行计算完成。")
         return results_ds

@@ -11,9 +11,17 @@
 
 1. 克隆仓库
 2. 创建并激活虚拟环境
-   ```bash
-   uv venv
-   source .venv/bin/activate
+```bash
+uv venv
+source .venv/bin/activate
+```
+
+```
+python -m src.chromasky_toolkit.main --acquire-only
+python -m src.chromasky_toolkit.main --calculate-only
+python -m src.chromasky_toolkit.main --draw-only
+python -m src.chromasky_toolkit.main
+```
 
 
 计算火烧云指数
