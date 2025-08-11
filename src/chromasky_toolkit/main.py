@@ -3,10 +3,6 @@
 import argparse
 import logging
 
-from . import data_acquisition
-from . import processing
-from . import mapping
-
 # --- 设置基础日志 ---
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +53,7 @@ def main():
 
     if run_acquire:
         try:
+            from . import data_acquisition
             data_acquisition.run_acquisition()
         except Exception as e:
             logger.error(f"❌ 在数据获取阶段发生严重错误: {e}", exc_info=True)
@@ -67,6 +64,7 @@ def main():
         logger.info("=" * 25 + " 指数计算 " + "=" * 25)
         # 替换占位符为实际调用
         try:
+            from . import processing
             processing.run_calculation()
         except Exception as e:
             logger.error(f"❌ 在指数计算阶段发生严重错误: {e}", exc_info=True)
@@ -78,6 +76,7 @@ def main():
         logger.info("=" * 25 + " 地图绘制 " + "=" * 25)
         # 替换占位符为实际调用
         try:
+            from . import mapping
             mapping.run_drawing()
         except Exception as e:
             logger.error(f"❌ 在地图绘制阶段发生严重错误: {e}", exc_info=True)

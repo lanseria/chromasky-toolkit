@@ -8,13 +8,16 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from typing import Tuple, Dict, List
+from typing import Tuple, Dict, List, Optional # <--- MODIFIED
 import xarray as xr
 from .processing import expand_target_events
 
 from . import config
 
 logger = logging.getLogger(__name__)
+
+# --- NEW: 定义一个模块级的变量来存储 GFS 网格模板 ---
+_gfs_grid_template: Optional[xr.Dataset] = None
 
 # ======================================================================
 # --- GFS 数据获取与处理 ---
@@ -41,10 +44,21 @@ def _find_latest_available_gfs_run() -> Tuple[str, str] | None:
     return None
 
 def _process_gfs_grib_to_nc(grib_path: Path, target_time_utc: datetime):
-    """将下载的GRIB2文件处理成多个标准的NetCDF文件。"""
+    """将下载的GRIB2文件处理成多个标准的NetCDF文件，并保存网格模板。"""
+    # <--- NEW: 引用全局模板变量 ---
+    global _gfs_grid_template
+
     local_tz = ZoneInfo(config.LOCAL_TZ)
     try:
         ds = xr.open_dataset(grib_path, engine="cfgrib", filter_by_keys={'stepType': 'instant'})
+        
+        # <--- NEW: 如果模板尚未创建，则创建它 ---
+        if _gfs_grid_template is None:
+            _gfs_grid_template = ds.copy() # 复制一份以备后用
+            # 为了减小内存占用，可以只保留坐标
+            # _gfs_grid_template = ds[[]].copy() # 这样只复制坐标和维度
+            logger.info("✅ [Template] 已成功从 GFS 数据创建网格模板。")
+            logger.debug(f"  - 模板网格尺寸: {_gfs_grid_template.dims}")
         
         local_dt = target_time_utc.astimezone(local_tz)
         local_date_str = local_dt.strftime('%Y-%m-%d')
@@ -101,8 +115,8 @@ def acquire_gfs_data(target_events: Dict[str, datetime]):
             params = {
                 "file": f"gfs.t{run_hour}z.pgrb2.0p25.f{forecast_hour:03d}",
                 "dir": f"/gfs.{run_date}/{run_hour}/atmos",
-                "subregion": "", "leftlon": config.AREA_EXTRACTION['west'], "rightlon": config.AREA_EXTRACTION['east'],
-                "toplat": config.AREA_EXTRACTION['north'], "bottomlat": config.AREA_EXTRACTION['south'],
+                "subregion": "", "leftlon": config.DOWNLOAD_AREA['west'], "rightlon": config.DOWNLOAD_AREA['east'],
+                "toplat": config.DOWNLOAD_AREA['north'], "bottomlat": config.DOWNLOAD_AREA['south'],
                 'var_HCDC': 'on', 'lev_high_cloud_layer': 'on',
                 'var_MCDC': 'on', 'lev_middle_cloud_layer': 'on',
                 'var_LCDC': 'on', 'lev_low_cloud_layer': 'on',
@@ -144,33 +158,61 @@ def _find_latest_available_cams_run() -> Tuple[str, str] | None:
     logger.error("❌ [CAMS] 在过去48小时内未能找到任何满足安全边际的运行周期。")
     return None
 
+# <--- MODIFIED: 整个函数都被重写以使用模板 ---
 def _process_cams_nc_to_nc(raw_nc_path: Path, target_events: Dict[str, datetime], base_run_time: datetime):
-    """将下载的包含多个时效的CAMS文件，分解为标准的单时效NetCDF文件。"""
+    """
+    将下载的包含多个时效的CAMS文件，分解、重采样到GFS网格，并保存为标准的单时效NetCDF文件。
+    """
+    global _gfs_grid_template # 引用全局模板
+
+    # 检查模板是否存在，这是处理 CAMS 的前提
+    if _gfs_grid_template is None:
+        logger.error("❌ [CAMS] 未找到 GFS 网格模板，无法对 CAMS 数据进行重采样。请先成功运行 GFS 数据处理流程。")
+        return
+
     local_tz = ZoneInfo(config.LOCAL_TZ)
     try:
-        with xr.open_dataset(raw_nc_path, engine="netcdf4") as ds:
-            print(raw_nc_path)
+        with xr.open_dataset(raw_nc_path, engine="netcdf4") as ds_cams_raw:
+            logger.info(f"--- [CAMS] 开始处理原始 CAMS 文件: {raw_nc_path.name} ---")
+            logger.debug(f"  - 原始CAMS网格尺寸: {ds_cams_raw.dims}")
+
             for event_name, target_time_utc in target_events.items():
                 leadtime_hour = round((target_time_utc - base_run_time).total_seconds() / 3600)
-                if leadtime_hour < 0: continue
+                if leadtime_hour < 0:
+                    continue
                 
                 target_forecast_period = timedelta(hours=leadtime_hour)
-                time_slice = ds.sel(forecast_period=target_forecast_period, method='nearest').squeeze()
+                # 1. 从原始CAMS数据中选择正确的时间片
+                time_slice = ds_cams_raw.sel(forecast_period=target_forecast_period, method='nearest').squeeze()
+                
                 local_dt = target_time_utc.astimezone(local_tz)
                 local_date_str = local_dt.strftime('%Y-%m-%d')
                 local_time_str_path = local_dt.strftime('%H%M')
                 output_dir = config.PROCESSED_DATA_DIR / "future" / local_date_str
                 output_dir.mkdir(parents=True, exist_ok=True)
                 
+                # 2. 遍历需要处理的 CAMS 变量
                 for short_name, cams_var_name in config.CAMS_VARS_MAP.items():
                     if short_name in time_slice:
-                        data_slice = time_slice[short_name]
-                        data_slice.attrs['standard_name'] = short_name
-                        data_slice.attrs['original_utc_time'] = target_time_utc.isoformat()
+                        original_slice = time_slice[short_name]
+
+                        # 3. 【核心步骤】重采样到 GFS 网格
+                        logger.info(f"  - 正在为事件 '{event_name}' 重采样变量 '{short_name}'...")
+                        resampled_slice = original_slice.interp_like(
+                            _gfs_grid_template, 
+                            method='linear', 
+                            kwargs={"fill_value": 0.0}
+                        ).fillna(0.0)
+
+                        # 4. 为重采样后的数据添加元数据
+                        resampled_slice.attrs['standard_name'] = short_name
+                        resampled_slice.attrs['original_utc_time'] = target_time_utc.isoformat()
+                        resampled_slice.attrs['regridding_source'] = 'GFS grid'
                         
+                        # 5. 保存重采样后的文件
                         output_path = output_dir / f"{short_name}_{local_time_str_path}.nc"
-                        data_slice.to_netcdf(output_path)
-                        logger.info(f"  ✅ [CAMS] 已处理并保存: {output_path.relative_to(config.PROJECT_ROOT)}")
+                        resampled_slice.to_netcdf(output_path)
+                        logger.info(f"  ✅ [CAMS] 已处理并保存对齐后的文件: {output_path.relative_to(config.PROJECT_ROOT)}")
 
     except Exception as e:
         logger.error(f"❌ [CAMS] 处理原始 NetCDF 文件 {raw_nc_path.name} 时出错: {e}", exc_info=True)
@@ -206,7 +248,7 @@ def acquire_cams_data(target_events: Dict[str, datetime]):
         logger.info(f"  - 将下载 {len(valid_leadtime_hours)} 个预报时效: {valid_leadtime_hours}")
         try:
             c = cdsapi.Client(url=config.CDS_API_URL, key=config.CDS_API_KEY, timeout=600, quiet=False)
-            area_bounds = [config.AREA_EXTRACTION[k] for k in ["north", "west", "south", "east"]]
+            area_bounds = [config.DOWNLOAD_AREA[k] for k in ["north", "west", "south", "east"]]
             
             c.retrieve(
                 config.CAMS_DATASET_NAME,
@@ -234,6 +276,7 @@ def acquire_cams_data(target_events: Dict[str, datetime]):
         finally:
             if temp_dl_path.exists(): temp_dl_path.unlink()
 
+    # 此处调用处理函数，它将内部使用全局模板
     _process_cams_nc_to_nc(raw_nc_path, target_events, base_run_time)
 
 # ======================================================================
@@ -254,11 +297,11 @@ def run_acquisition():
     for name, dt in target_events.items():
         logger.info(f"  - {name} (UTC: {dt.strftime('%Y-%m-%d %H:%M')})")
     
-    # 2. 获取 GFS 数据
+    # 2. 获取 GFS 数据（此过程将创建 _gfs_grid_template）
     logger.info("="*25 + " GFS 数据处理 " + "="*25)
     acquire_gfs_data(target_events)
     
-    # 3. 获取 CAMS AOD 数据
+    # 3. 获取 CAMS AOD 数据（此过程将使用 _gfs_grid_template）
     logger.info("="*25 + " CAMS AOD 数据处理 " + "="*25)
     acquire_cams_data(target_events)
     

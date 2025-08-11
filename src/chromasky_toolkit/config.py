@@ -28,14 +28,31 @@ CDS_API_KEY: str | None = os.getenv("CDS_API_KEY")
 CDS_API_URL: str = "https://ads.atmosphere.copernicus.eu/api" # CAMS API URL
 
 
+
 # --- 4. 数据处理与下载配置 ---
-# 数据提取的地理范围 (覆盖中国大部分地区)
-AREA_EXTRACTION: Dict[str, float] = {
+# 定义两个地理范围:
+# 1. DISPLAY_AREA: 最终在地图上展示的区域。
+# 2. DOWNLOAD_AREA: 实际从服务器下载数据的区域，比展示区域更大，以确保边界计算的准确性。
+
+# 展示范围 (覆盖中国大部分地区)
+DISPLAY_AREA: Dict[str, float] = {
     "north": 54.00,
     "south": 0.00,
     "west": 70.00,
     "east": 135.00,
 }
+
+# 下载范围 (在展示范围基础上，向四周各扩展15度作为缓冲区)
+# 这个缓冲区对于精确计算边界区域的云边界距离至关重要
+DOWNLOAD_AREA: Dict[str, float] = {
+    "north": DISPLAY_AREA["north"] + 15.0, # 扩展到 69.0
+    "south": DISPLAY_AREA["south"] - 15.0, # 扩展到 -15.0
+    "west": DISPLAY_AREA["west"] - 15.0,   # 扩展到 55.0
+    "east": DISPLAY_AREA["east"] + 15.0,   # 扩展到 150.0
+}
+# 对下载范围进行边界检查，确保纬度在[-90, 90]和经度在[-180, 180]或[0, 360]的有效范围内
+DOWNLOAD_AREA["north"] = min(DOWNLOAD_AREA["north"], 90.0)
+DOWNLOAD_AREA["south"] = max(DOWNLOAD_AREA["south"], -90.0)
 
 # 本地时区
 LOCAL_TZ: str = "Asia/Shanghai"

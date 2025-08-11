@@ -66,7 +66,7 @@ def run_calculation():
             data_dir = config.PROCESSED_DATA_DIR / "future" / date_str
             
             # 2. 加载所有必需的输入数据
-            required_vars = ['hcc', 'mcc', 'lcc']
+            required_vars = ['hcc', 'mcc', 'lcc', 'aod550']
             data_arrays = {}
             for var in required_vars:
                 file_path = data_dir / f"{var}_{time_str}.nc"

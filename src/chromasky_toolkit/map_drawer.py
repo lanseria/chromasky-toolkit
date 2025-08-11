@@ -105,7 +105,7 @@ def generate_map_from_grid(
         fig = plt.figure(figsize=(12, 10), facecolor='black')
         ax = fig.add_subplot(1, 1, 1, projection=proj)
         ax.set_facecolor('black')
-        area_bounds = [config.AREA_EXTRACTION[k] for k in ["west", "east", "south", "north"]]
+        area_bounds = [config.DISPLAY_AREA[k] for k in ["west", "east", "south", "north"]]
         ax.set_extent(area_bounds, crs=ccrs.PlateCarree())
         ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor='#0c0a09', zorder=0)
         ax.add_feature(cfeature.LAND.with_scale('50m'), facecolor='#1c1917', edgecolor='none', zorder=0)
@@ -197,8 +197,8 @@ if __name__ == "__main__":
     logger.info("===== 正在以独立模式运行 map_drawer.py 进行自测 =====")
     
     # 创建模拟数据
-    lats = np.arange(config.AREA_EXTRACTION["south"], config.AREA_EXTRACTION["north"], 0.25)
-    lons = np.arange(config.AREA_EXTRACTION["west"], config.AREA_EXTRACTION["east"], 0.25)
+    lats = np.arange(config.DISPLAY_AREA["south"], config.DISPLAY_AREA["north"], 0.25)
+    lons = np.arange(config.DISPLAY_AREA["west"], config.DISPLAY_AREA["east"], 0.25)
     lon_grid, lat_grid = np.meshgrid(lons, lats)
     center_lon, center_lat = 115, 30
     sigma_lon, sigma_lat = 10, 8
