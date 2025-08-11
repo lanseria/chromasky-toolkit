@@ -1,223 +1,265 @@
 # src/chromasky_toolkit/data_acquisition.py
 
 import logging
+import requests
+import json
+import cdsapi
 import zipfile
-import xarray as xr
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from datetime import datetime, date
+from zoneinfo import ZoneInfo
+from typing import Tuple, Dict, List
+import xarray as xr
+from .processing import expand_target_events
 
-# 从同级目录的 config.py 中导入配置
 from . import config
 
-# 懒加载 cdsapi，仅在需要时导入
-cdsapi = None
-
-# 获取一个模块级别的 logger
 logger = logging.getLogger(__name__)
 
-def _lazy_import_cdsapi():
-    """懒加载 cdsapi，避免在不使用时成为硬性依赖。"""
-    global cdsapi
-    if cdsapi is None:
-        try:
-            import cdsapi as cds_lib
-            cdsapi = cds_lib
-        except ImportError:
-            logger.error("cdsapi 库未安装。请运行 'uv pip install cdsapi'。")
-            raise
-    return cdsapi
+# ======================================================================
+# --- GFS 数据获取与处理 ---
+# ======================================================================
 
-# --- 内部辅助函数 (从 Notebook 迁移而来) ---
+def _find_latest_available_gfs_run() -> Tuple[str, str] | None:
+    """智能判断当前可用的最新 GFS 运行周期。"""
+    logger.info("--- [GFS] 正在寻找最新的可用运行周期...")
+    now_utc = datetime.now(timezone.utc)
+    safe_margin = timedelta(hours=5)
 
-def _get_required_utc_dates_and_hours(target_local_date: date) -> dict:
-    """根据本地日期和时间，计算出所需的 UTC 日期和小时。"""
-    try:
-        from zoneinfo import ZoneInfo
-    except ImportError:
-        logger.error("zoneinfo 库需要 Python 3.9+。")
-        raise
+    for i in range(10):
+        potential_run_time = now_utc - timedelta(hours=i * 6)
+        run_hour = (potential_run_time.hour // 6) * 6
+        run_time_utc = potential_run_time.replace(hour=run_hour, minute=0, second=0, microsecond=0)
         
+        if (now_utc - run_time_utc) >= safe_margin:
+            run_date_str = run_time_utc.strftime('%Y%m%d')
+            run_hour_str = f"{run_time_utc.hour:02d}"
+            logger.info(f"✅ [GFS] 找到最新的可用运行周期: {run_date_str} {run_hour_str}z")
+            return run_date_str, run_hour_str
+            
+    logger.error("❌ [GFS] 在过去24小时内未能找到任何可用的运行周期。")
+    return None
+
+def _process_gfs_grib_to_nc(grib_path: Path, target_time_utc: datetime):
+    """将下载的GRIB2文件处理成多个标准的NetCDF文件。"""
     local_tz = ZoneInfo(config.LOCAL_TZ)
-    all_event_times = config.SUNRISE_EVENT_TIMES + config.SUNSET_EVENT_TIMES
-    utc_date_hours = {}
-
-    for time_str in all_event_times:
-        local_dt = datetime.combine(target_local_date, datetime.strptime(time_str, '%H:%M').time(), tzinfo=local_tz)
-        utc_dt = local_dt.astimezone(datetime.now(datetime.UTC).tzinfo.utcoffset(datetime.now(datetime.UTC)))
-        
-        utc_date_str = utc_dt.strftime('%Y-%m-%d')
-        if utc_date_str not in utc_date_hours:
-            utc_date_hours[utc_date_str] = set()
-        utc_date_hours[utc_date_str].add(utc_dt.hour)
-    return utc_date_hours
-
-def _generate_analysis_report(ds: xr.Dataset) -> str:
-    """根据 xarray.Dataset 对象，生成一份详细的 Markdown 格式的分析报告。"""
-    # ... (这个函数从 Notebook 完整复制过来)
-    report_lines = []
-    source_file = Path(ds.encoding.get("source", "N/A")).name
-    report_lines.append(f"# NetCDF 文件分析报告: `{source_file}`")
-    # ... 其余部分和 Notebook 中的完全一样 ...
-    return "\n".join(report_lines)
-
-def _download_era5_past(target_local_date: date) -> Path | None:
-    """
-    下载 ERA5 历史数据（过去数据）的核心实现。
-    """
-    _lazy_import_cdsapi() # 确保 cdsapi 已导入
-
-    if not (config.CDS_API_URL and config.CDS_API_KEY):
-        logger.error("❌ CDS API 配置未在 .env 文件中找到，无法继续。")
-        return None
-
-    output_dir = config.ERA5_DATA_DIR / target_local_date.strftime('%Y-%m-%d')
-    output_dir.mkdir(parents=True, exist_ok=True)
-    final_output_file = output_dir / "era5_data.nc"
-    temp_download_path = output_dir / "temp_download"
-    report_file_path = final_output_file.with_suffix('.md')
-
-    if final_output_file.exists():
-        logger.info(f"✅ 最终数据文件已存在，跳过下载: {final_output_file}")
-        return final_output_file
-        
-    # 下载逻辑...
-    required_utc_info = _get_required_utc_dates_and_hours(target_local_date)
-    if not required_utc_info:
-        logger.warning("未能计算出任何需要下载的UTC日期和小时。")
-        return None
-
-    years, months, days, hours = set(), set(), set(), set()
-    for utc_date_str, hours_set in required_utc_info.items():
-        dt_obj = datetime.strptime(utc_date_str, '%Y-%m-%d')
-        years.add(f"{dt_obj.year}")
-        months.add(f"{dt_obj.month:02d}")
-        days.add(f"{dt_obj.day:02d}")
-        hours.update([f"{h:02d}:00" for h in hours_set])
-    
-    request_params = {
-        'year': sorted(list(years)),
-        'month': sorted(list(months)),
-        'day': sorted(list(days)),
-        'time': sorted(list(hours)),
-    }
-    
-    logger.info("将为以下参数发起下载请求:")
-    for key, value in request_params.items():
-        logger.info(f"  > {key.capitalize()}: {value}")
-
-    c = cdsapi.Client(timeout=600, quiet=False, url="https://cds.climate.copernicus.eu/api", key=config.CDS_API_KEY)
-    area_bounds = [config.AREA_EXTRACTION[k] for k in ["north", "west", "south", "east"]]
-    
     try:
-        # 1. 下载到临时的文件，而不是直接命名为 .nc
-        logger.info("正在向 CDS 服务器发送请求...")
-        c.retrieve(
-            'reanalysis-era5-single-levels',
-            {
-                'product_type': 'reanalysis',
-                'format': 'netcdf', # 即使请求 netcdf, 服务器也可能返回 zip
-                'variable': [
-                    "high_cloud_cover", "medium_cloud_cover", "low_cloud_cover", 
-                    "total_cloud_cover", "total_precipitation", "surface_pressure",
-                    "2m_temperature", "2m_dewpoint_temperature"
-                ],
-                'area': area_bounds,
-                **request_params
-            },
-            str(temp_download_path)
-        )
-        logger.info(f"✅ 临时文件已成功下载到: {temp_download_path}")
+        ds = xr.open_dataset(grib_path, engine="cfgrib", filter_by_keys={'stepType': 'instant'})
+        
+        local_dt = target_time_utc.astimezone(local_tz)
+        local_date_str = local_dt.strftime('%Y-%m-%d')
+        local_time_str_path = local_dt.strftime('%H%M')
+        
+        output_dir = config.PROCESSED_DATA_DIR / "future" / local_date_str
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 2. 检查下载的是 ZIP 还是直接就是 NC
-        if zipfile.is_zipfile(temp_download_path):
-            logger.info("检测到下载文件为 ZIP 压缩包，开始解压...")
-            with zipfile.ZipFile(temp_download_path, 'r') as zip_ref:
-                # 寻找解压出来的 .nc 文件
-                nc_files_in_zip = [f for f in zip_ref.namelist() if f.endswith('.nc')]
-                if not nc_files_in_zip:
-                    raise FileNotFoundError("ZIP 包中未找到任何 .nc 文件！")
+        for short_name in config.GFS_VARS_LIST:
+            if short_name in ds:
+                data_slice = ds[short_name]
+                if data_slice.max() > 1.0:
+                    logger.debug(f"  - 归一化变量 '{short_name}' (原最大值: {data_slice.max().item():.2f})")
+                    data_slice = data_slice / 100.0
                 
-                # 解压第一个找到的 .nc 文件
-                source_nc_path = zip_ref.extract(nc_files_in_zip[0], path=output_dir)
-                logger.info(f"已解压出 NetCDF 文件: {source_nc_path}")
+                data_slice.attrs['units'] = '(0-1)'
+                data_slice.attrs['standard_name'] = short_name
+                data_slice.attrs['original_utc_time'] = target_time_utc.isoformat()
                 
-                # 将解压出的文件重命名为我们最终想要的名字
-                Path(source_nc_path).rename(final_output_file)
-                logger.info(f"已将文件重命名为: {final_output_file}")
+                output_path = output_dir / f"{short_name}_{local_time_str_path}.nc"
+                data_slice.to_netcdf(output_path)
+                logger.info(f"  ✅ [GFS] 已处理并保存: {output_path.relative_to(config.PROJECT_ROOT)}")
+            else:
+                logger.warning(f"  - 在GRIB文件中未找到变量: {short_name}")
+    except Exception as e:
+        logger.error(f"❌ [GFS] 处理 GRIB 文件 {grib_path.name} 时出错: {e}", exc_info=True)
+
+
+def acquire_gfs_data(target_events: Dict[str, datetime]):
+    """为指定的目标事件列表下载和处理GFS数据。"""
+    run_info = _find_latest_available_gfs_run()
+    if not run_info:
+        return
+    run_date, run_hour = run_info
+    run_time_utc = datetime.strptime(f"{run_date}{run_hour}", "%Y%m%d%H").replace(tzinfo=timezone.utc)
+    
+    for event_name, target_time_utc in target_events.items():
+        logger.info(f"--- [GFS] 开始处理事件: {event_name} ---")
+        
+        time_diff_hours = (target_time_utc - run_time_utc).total_seconds() / 3600
+        if time_diff_hours < 0:
+            logger.warning(f"  - 事件 '{event_name}' 的时间早于最新运行周期，跳过。")
+            continue
+        forecast_hour = round(time_diff_hours)
+        
+        raw_grib_dir = config.GFS_DATA_DIR / f"{run_date}_t{run_hour}z"
+        raw_grib_dir.mkdir(parents=True, exist_ok=True)
+        grib_path = raw_grib_dir / f"gfs_f{forecast_hour:03d}.grib2"
+        
+        if grib_path.exists() and grib_path.stat().st_size > 1024:
+            logger.info(f"  - GRIB 数据已存在: {grib_path.name}，跳过下载。")
         else:
-            # 如果不是 ZIP，说明直接下载的就是 NetCDF 文件
-            logger.info("检测到下载文件为 NetCDF，直接重命名。")
-            temp_download_path.rename(final_output_file)
+            logger.info(f"  - 正在为事件 '{event_name}' 下载 GRIB (预报时效: f{forecast_hour:03d})")
+            params = {
+                "file": f"gfs.t{run_hour}z.pgrb2.0p25.f{forecast_hour:03d}",
+                "dir": f"/gfs.{run_date}/{run_hour}/atmos",
+                "subregion": "", "leftlon": config.AREA_EXTRACTION['west'], "rightlon": config.AREA_EXTRACTION['east'],
+                "toplat": config.AREA_EXTRACTION['north'], "bottomlat": config.AREA_EXTRACTION['south'],
+                'var_HCDC': 'on', 'lev_high_cloud_layer': 'on',
+                'var_MCDC': 'on', 'lev_middle_cloud_layer': 'on',
+                'var_LCDC': 'on', 'lev_low_cloud_layer': 'on',
+            }
+            try:
+                response = requests.get(config.GFS_BASE_URL, params=params, stream=True, timeout=300)
+                response.raise_for_status()
+                with open(grib_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192): f.write(chunk)
+                logger.info(f"  ✅ [GFS] GRIB 数据已保存到: {grib_path.name}")
+            except requests.RequestException as e:
+                logger.error(f"  ❌ [GFS] GRIB 下载失败: {e}")
+                continue
+        
+        # 无论是否下载，都进行处理
+        _process_gfs_grib_to_nc(grib_path, target_time_utc)
 
-        return final_output_file
+# ======================================================================
+# --- CAMS AOD 数据获取与处理 ---
+# ======================================================================
+
+def _find_latest_available_cams_run() -> Tuple[str, str] | None:
+    """智能判断当前可用的最新 CAMS 运行周期 (00z 或 12z)。"""
+    logger.info("--- [CAMS] 正在寻找最新的可用运行周期...")
+    now_utc = datetime.now(timezone.utc)
+    safe_margin = timedelta(hours=9)
+    
+    for i in range(4):
+        potential_run_time = now_utc - timedelta(hours=i * 12)
+        run_hour = 12 if 12 <= potential_run_time.hour < 24 else 0
+        run_time_utc = potential_run_time.replace(hour=run_hour, minute=0, second=0, microsecond=0)
+
+        if (now_utc - run_time_utc) >= safe_margin:
+            run_date_str = run_time_utc.strftime('%Y-%m-%d')
+            run_hour_str = f"{run_time_utc.hour:02d}:00"
+            logger.info(f"✅ [CAMS] 找到最新的可用运行周期: {run_date_str} {run_hour_str} UTC")
+            return run_date_str, run_hour_str
+            
+    logger.error("❌ [CAMS] 在过去48小时内未能找到任何满足安全边际的运行周期。")
+    return None
+
+def _process_cams_nc_to_nc(raw_nc_path: Path, target_events: Dict[str, datetime], base_run_time: datetime):
+    """将下载的包含多个时效的CAMS文件，分解为标准的单时效NetCDF文件。"""
+    local_tz = ZoneInfo(config.LOCAL_TZ)
+    try:
+        with xr.open_dataset(raw_nc_path, engine="netcdf4") as ds:
+            print(raw_nc_path)
+            for event_name, target_time_utc in target_events.items():
+                leadtime_hour = round((target_time_utc - base_run_time).total_seconds() / 3600)
+                if leadtime_hour < 0: continue
+                
+                target_forecast_period = timedelta(hours=leadtime_hour)
+                time_slice = ds.sel(forecast_period=target_forecast_period, method='nearest').squeeze()
+                local_dt = target_time_utc.astimezone(local_tz)
+                local_date_str = local_dt.strftime('%Y-%m-%d')
+                local_time_str_path = local_dt.strftime('%H%M')
+                output_dir = config.PROCESSED_DATA_DIR / "future" / local_date_str
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
+                for short_name, cams_var_name in config.CAMS_VARS_MAP.items():
+                    if short_name in time_slice:
+                        data_slice = time_slice[short_name]
+                        data_slice.attrs['standard_name'] = short_name
+                        data_slice.attrs['original_utc_time'] = target_time_utc.isoformat()
+                        
+                        output_path = output_dir / f"{short_name}_{local_time_str_path}.nc"
+                        data_slice.to_netcdf(output_path)
+                        logger.info(f"  ✅ [CAMS] 已处理并保存: {output_path.relative_to(config.PROJECT_ROOT)}")
 
     except Exception as e:
-        logger.error(f"❌ 下载或解压过程中发生严重错误: {e}", exc_info=True)
-        return None
-    finally:
-        # 4. 清理临时文件
-        if temp_download_path.exists():
-            temp_download_path.unlink()
+        logger.error(f"❌ [CAMS] 处理原始 NetCDF 文件 {raw_nc_path.name} 时出错: {e}", exc_info=True)
 
-    # 生成分析报告
-    if final_output_file.exists() and not report_file_path.exists():
+
+def acquire_cams_data(target_events: Dict[str, datetime]):
+    """为指定的目标事件列表下载和处理CAMS AOD数据。"""
+    run_info = _find_latest_available_cams_run()
+    if not run_info:
+        return
+    run_date_str, run_hour_str = run_info
+    base_run_time = datetime.strptime(f"{run_date_str} {run_hour_str}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+    
+    leadtime_hours = {
+        round((t - base_run_time).total_seconds() / 3600)
+        for t in target_events.values()
+    }
+    valid_leadtime_hours = sorted([str(h) for h in leadtime_hours if h >= 0])
+    
+    if not valid_leadtime_hours:
+        logger.warning("[CAMS] 没有需要下载的未来预报时效。")
+        return
+        
+    raw_nc_dir = config.CAMS_AOD_DATA_DIR / f"{base_run_time.strftime('%Y%m%d')}_t{base_run_time.strftime('%H')}z"
+    raw_nc_dir.mkdir(parents=True, exist_ok=True)
+    raw_nc_path = raw_nc_dir / "aod_forecast_raw.nc"
+    temp_dl_path = raw_nc_path.with_suffix('.tmp')
+
+    if raw_nc_path.exists() and raw_nc_path.stat().st_size > 1024:
+        logger.info(f"  - CAMS 原始数据已存在: {raw_nc_path.name}，跳过下载。")
+    else:
+        logger.info(f"--- [CAMS] 开始为运行周期 {run_date_str} {run_hour_str} 下载新数据 ---")
+        logger.info(f"  - 将下载 {len(valid_leadtime_hours)} 个预报时效: {valid_leadtime_hours}")
         try:
-            with xr.open_dataset(final_output_file, engine="netcdf4") as ds:
-                report_content = _generate_analysis_report(ds)
-                report_file_path.write_text(report_content, encoding='utf-8')
-                logger.info(f"✅ 分析报告已保存到: {report_file_path}")
+            c = cdsapi.Client(url=config.CDS_API_URL, key=config.CDS_API_KEY, timeout=600, quiet=False)
+            area_bounds = [config.AREA_EXTRACTION[k] for k in ["north", "west", "south", "east"]]
+            
+            c.retrieve(
+                config.CAMS_DATASET_NAME,
+                {
+                    'date': run_date_str, 'time': run_hour_str, 'format': 'netcdf',
+                    'variable': list(config.CAMS_VARS_MAP.values()),
+                    'leadtime_hour': valid_leadtime_hours, 'type': 'forecast', 'area': area_bounds
+                },
+                str(temp_dl_path)
+            )
+            
+            if zipfile.is_zipfile(temp_dl_path):
+                logger.info("  - 检测到ZIP包，正在解压...")
+                with zipfile.ZipFile(temp_dl_path, 'r') as zip_ref:
+                    nc_file_in_zip = zip_ref.namelist()[0]
+                    zip_ref.extract(nc_file_in_zip, raw_nc_dir)
+                    (raw_nc_dir / nc_file_in_zip).rename(raw_nc_path)
+            else:
+                temp_dl_path.rename(raw_nc_path)
+            logger.info(f"  ✅ [CAMS] 原始数据已保存至: {raw_nc_path.name}")
+
         except Exception as e:
-            logger.error(f"❌ 生成分析报告时出错: {e}")
+            logger.error(f"❌ [CAMS] 下载原始数据时出错: {e}", exc_info=True)
+            return
+        finally:
+            if temp_dl_path.exists(): temp_dl_path.unlink()
 
-    return final_output_file
+    _process_cams_nc_to_nc(raw_nc_path, target_events, base_run_time)
 
+# ======================================================================
+# --- 主执行函数 ---
+# ======================================================================
 
-# --- 主入口函数 ---
-
-def fetch_weather_data(source: str, data_type: str, target_date_str: str) -> Path | None:
-    """
-    根据指定参数获取天气数据。
-
-    Args:
-        source (str): 数据源，支持 'ecmwf' 或 'gfs'。
-        data_type (str): 数据类型，支持 'past' (历史) 或 'future' (预报)。
-        target_date_str (str): 目标日期，格式为 'YYYYMMDD'。
-
-    Returns:
-        Path | None: 成功则返回数据文件路径，否则返回 None。
-    """
-    logger.info(f"--- 开始数据获取任务: source={source}, type={data_type}, date={target_date_str} ---")
-
-    # 1. 参数验证
-    supported_sources = ['ecmwf', 'gfs']
-    if source not in supported_sources:
-        logger.error(f"不支持的数据源: '{source}'。请选择 {supported_sources}")
-        return None
-
-    supported_types = ['past', 'future']
-    if data_type not in supported_types:
-        logger.error(f"不支持的数据类型: '{data_type}'。请选择 {supported_types}")
-        return None
-
-    try:
-        target_date_obj = datetime.strptime(target_date_str, "%Y%m%d").date()
-    except ValueError:
-        logger.error(f"日期格式错误: '{target_date_str}'。请使用 'YYYYMMDD' 格式。")
-        return None
-
-    # 2. 根据参数分发到不同的处理函数
-    if source == 'ecmwf':
-        if data_type == 'past':
-            # 这是我们已经实现的功能
-            return _download_era5_past(target_date_obj)
-        elif data_type == 'future':
-            logger.warning("功能未实现: ECMWF 预报数据下载。")
-            # 在这里可以调用 _download_ecmwf_forecast(target_date_obj)
-            return None
+def run_acquisition():
+    """执行完整的数据获取和处理流程。"""
+    logger.info("====== 开始执行数据获取与分析流程 ======")
     
-    elif source == 'gfs':
-        logger.warning("功能未实现: GFS 数据下载。")
-        # 在这里可以调用 _download_gfs_data(target_date_obj, data_type)
-        return None
+    # 1. 确定需要处理的所有事件
+    target_events = expand_target_events()
+    if not target_events:
+        logger.warning("根据配置，没有找到任何需要处理的未来事件。流程终止。")
+        return
+        
+    logger.info(f"将要处理的事件共 {len(target_events)} 个:")
+    for name, dt in target_events.items():
+        logger.info(f"  - {name} (UTC: {dt.strftime('%Y-%m-%d %H:%M')})")
     
-    return None
+    # 2. 获取 GFS 数据
+    logger.info("="*25 + " GFS 数据处理 " + "="*25)
+    acquire_gfs_data(target_events)
+    
+    # 3. 获取 CAMS AOD 数据
+    logger.info("="*25 + " CAMS AOD 数据处理 " + "="*25)
+    acquire_cams_data(target_events)
+    
+    logger.info("====== 数据获取与分析流程执行完毕！ ======")

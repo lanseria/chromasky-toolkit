@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Literal # <-- 确保导入 Literal
 from dotenv import load_dotenv
 
 
@@ -25,6 +25,8 @@ else:
 # --- 3. API 和密钥配置 ---
 # 从环境变量中获取 CDS 配置
 CDS_API_KEY: str | None = os.getenv("CDS_API_KEY")
+CDS_API_URL: str = "https://ads.atmosphere.copernicus.eu/api" # CAMS API URL
+
 
 # --- 4. 数据处理与下载配置 ---
 # 数据提取的地理范围 (覆盖中国大部分地区)
@@ -44,6 +46,14 @@ LOCAL_TZ: str = "Asia/Shanghai"
 SUNRISE_EVENT_TIMES: List[str] = ["05:00"]
 # SUNSET_EVENT_TIMES: List[str] = ["18:00", "19:00", "20:00", "21:00"]
 SUNSET_EVENT_TIMES: List[str] = ["19:00"]
+
+# --- 新增：未来事件处理意图配置 ---
+# 定义您想处理的未来事件列表。
+# 可用选项: 'today_sunrise', 'today_sunset', 'tomorrow_sunrise', 'tomorrow_sunset'
+FUTURE_TARGET_EVENT_INTENTIONS: List[Literal['today_sunrise', 'today_sunset', 'tomorrow_sunrise', 'tomorrow_sunset']] = [
+    "today_sunset",
+    # "tomorrow_sunrise",
+]
 
 # --- 6. 项目核心文件路径配置 ---
 # 这是一个非常好的实践，将所有路径常量化
@@ -70,6 +80,7 @@ CITIES_CSV_PATH: Path = MAP_DATA_DIR / "china_cities.csv"
 # 6.4 outputs 目录下的子目录
 MAP_OUTPUTS_DIR: Path = OUTPUTS_DIR / "maps"
 FIGURE_OUTPUTS_DIR: Path = OUTPUTS_DIR / "figures"
+CALCULATION_OUTPUTS_DIR: Path = OUTPUTS_DIR / "calculations" # 新增：用于存放计算结果
 
 # --- 7. 绘图样式配置 (可选，但推荐) ---
 # 将颜色、字体等也放入配置，方便统一修改风格
@@ -79,16 +90,14 @@ CHROMA_SKY_COLOR_NODES: List[float] = [0.0, 0.5, 0.7, 0.85, 1.0]
 
 # --- 8. GFS 预报数据配置 ---
 GFS_BASE_URL: str = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
-GFS_VARS: List[str] = [
-    "TCDC", # Total Cloud Cover
-    "HCDC", # High Cloud Cover
-    "MCDC", # Middle Cloud Cover
-    "LCDC", # Low Cloud Cover
-    "HGT",  # Geopotential Height (用于云底高度)
-]
+GFS_VARS_LIST: List[str] =  ['hcc', 'mcc', 'lcc']
 
 # --- 9. CAMS AOD 预报数据配置 (新增部分) ---
 CAMS_DATASET_NAME: str = 'cams-global-atmospheric-composition-forecasts'
-CAMS_AOD_VARIABLES: List[str] = [
-    'total_aerosol_optical_depth_550nm',
-]
+CAMS_VARS_MAP: Dict[str, str] = {
+    'aod550': 'total_aerosol_optical_depth_550nm',
+}
+
+# --- 10. 计算参数配置 (新增部分) ---
+# 定义在天文事件（日出/日落）前后多长时间的窗口内进行计算
+EVENT_WINDOW_MINUTES: int = 30
