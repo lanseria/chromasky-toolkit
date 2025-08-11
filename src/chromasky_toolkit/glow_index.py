@@ -31,9 +31,9 @@ class GlowIndexCalculator:
     
     # 定义品质因子的默认权重
     DEFAULT_WEIGHTS = {
-        'score_boundary': 0.8,  # 云边界距离是最重要的品质因子
+        'score_boundary': 0.6,  # 云边界距离是最重要的品质因子
         'score_hcc':      0.1,  # 高云形态是次要的品质因子
-        'score_aod550':   0.1   # 大气透明度(AOD)作为新的品质因子
+        'score_aod550':   0.3   # 大气透明度(AOD)作为新的品质因子
     }
 
     def __init__(self, weather_data: xr.Dataset, weights: Dict[str, float] = None):
