@@ -18,6 +18,7 @@ source .venv/bin/activate
 
 ```
 python -m src.chromasky_toolkit.main --acquire-only
+python -m src.chromasky_toolkit.main --visualize-inputs
 python -m src.chromasky_toolkit.main --calculate-only
 python -m src.chromasky_toolkit.main --draw-only
 python -m src.chromasky_toolkit.main

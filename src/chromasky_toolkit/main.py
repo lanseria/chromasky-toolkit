@@ -27,6 +27,11 @@ def main():
         help="仅执行数据获取和预处理(下载 GFS/AOD 并分析成 .nc 文件)。"
     )
     parser.add_argument(
+        '--visualize-inputs',
+        action='store_true',
+        help="仅绘制预处理后的输入数据图 (高/中/低云, AOD)，用于调试。"
+    )
+    parser.add_argument(
         '--calculate-only',
         action='store_true',
         help="仅执行火烧云指数计算 (需要已获取的数据)。"
@@ -40,12 +45,18 @@ def main():
     args = parser.parse_args()
     
     run_acquire = args.acquire_only
+    run_visualize = args.visualize_inputs
     run_calculate = args.calculate_only
     run_draw = args.draw_only
 
-    if not any([run_acquire, run_calculate, run_draw]):
+    # 如果没有指定任何 --xxx-only 或 --visualize-inputs 参数，则执行完整流程
+    if not any([run_acquire, run_visualize, run_calculate, run_draw]):
         logger.info("未指定特定步骤，将执行完整流程: 获取 -> 计算 -> 绘制")
         run_acquire, run_calculate, run_draw = True, True, True
+    else:
+        # 如果指定了 --visualize-inputs，则它是一个独立操作，不应与其他流程混淆
+        if run_visualize:
+            run_acquire, run_calculate, run_draw = False, False, False
 
     logger.info("=" * 60)
     logger.info("====== 开始执行 ChromaSky Toolkit 流程 ======")
@@ -59,6 +70,15 @@ def main():
             logger.error(f"❌ 在数据获取阶段发生严重错误: {e}", exc_info=True)
             if not any([args.calculate_only, args.draw_only]): return
 
+    # --- 1.5 (新增) 可视化输入数据 ---
+    if run_visualize:
+        logger.info("\n" + "=" * 25 + " 绘制输入数据图 " + "=" * 25)
+        try:
+            from . import input_visualizer
+            input_visualizer.run_input_visualization()
+        except Exception as e:
+            logger.error(f"❌ 在绘制输入数据图阶段发生严重错误: {e}", exc_info=True)
+    
     # --- 2. 指数计算 (Calculation) ---
     if run_calculate:
         logger.info("=" * 25 + " 指数计算 " + "=" * 25)

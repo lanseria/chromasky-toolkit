@@ -32,28 +32,36 @@ try:
     # 步骤 2: 无论如何，都设置这个以正确显示负号
     plt.rcParams['axes.unicode_minus'] = False
 
-    # 步骤 3: 检查当前字体是否能显示中文“你”
-    # 如果可以，我们任务完成
-    if any('你好' in f.name for f in fm.fontManager.ttflist if '你好' in f.name): # Simplified check for common Chinese font names
-        CHINESE_FONT_FOUND = True
+    # 步骤 3: 主动扫描系统字体，建立一个更可靠的候选列表
+    # --- vvvv 核心优化 vvvv ---
+    # 定义一个更广泛的、包含常见中文字体名称关键字的列表
+    # 您可以根据上一步脚本的输出，将您系统特有的中文字体名称添加进来
+    CHINESE_FONT_KEYWORDS = [
+        # Windows 常见字体
+        'SimSun', 'SimHei', 'Microsoft YaHei', 'DengXian', 'FangSong', 'KaiTi',
+        # macOS 常见字体
+        'PingFang SC', 'Hiragino Sans GB',
+        # Linux / Noto 常见字体
+        'Noto Sans CJK SC', 'WenQuanYi Micro Hei',
+        # 其他通用名称
+        'Heiti', 'Songti', 'Kaiti'
+    ]
+
+    font_manager = fm.FontManager()
     
-    # 步骤 4: 如果上面的检查失败，则主动扫描系统字体
-    if not CHINESE_FONT_FOUND:
-        logger.info("当前字体不支持中文，开始主动扫描系统可用中文字体...")
-        
-        # fm.fontManager.ttflist 包含了所有 matplotlib 扫描到的字体
-        for font in fm.fontManager.ttflist:
-            # 我们通过字体的名字来判断。常见的中文名包括 Heiti, Hei, Ming, Song, FangSong, Kai
-            if 'Heiti' in font.name or 'Hei' in font.name or 'Song' in font.name or 'FangSong' in font.name or 'Kai' in font.name or 'PingFang' in font.name or 'Microsoft YaHei' in font.name:
-                logger.info(f"✅ 找到可用的中文字体: '{font.name}'。将其设置为默认字体。")
-                plt.rcParams['font.sans-serif'] = [font.name]
-                CHINESE_FONT_FOUND = True
-                break # 找到第一个就停止
+    for font in font_manager.ttflist:
+        # 检查字体的名称是否包含任何我们定义的关键字
+        if any(keyword in font.name for keyword in CHINESE_FONT_KEYWORDS):
+            logger.info(f"✅ 找到可用的中文字体: '{font.name}'。将其设置为默认字体。")
+            plt.rcParams['font.sans-serif'] = [font.name]
+            CHINESE_FONT_FOUND = True
+            break # 找到第一个就停止，优先使用列表靠前的字体
 
     if CHINESE_FONT_FOUND:
         logger.info(f"最终使用的字体列表: {plt.rcParams['font.sans-serif']}")
     else:
         logger.warning("扫描完毕，系统中仍未找到任何可用的中文字体。中文将无法正常显示。")
+    # --- ^^^^ 核心优化 ^^^^ ---
 
 except Exception as e:
     logger.warning(f"设置字体时发生未知错误: {e}")

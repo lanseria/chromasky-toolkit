@@ -16,6 +16,7 @@ from .astronomy import AstronomyService
 class GlowIndexCalculator:
     """
     根据多种气象因子，使用混合评分模型计算火烧云指数。
+    新模型: 最终得分 = (品质分) * (惩罚分)
     """
     
     # --- 类常量与配置 ---
@@ -29,21 +30,16 @@ class GlowIndexCalculator:
     # 定义所有可用的评分因子名称
     ALL_FACTORS = ['score_boundary', 'score_hcc', 'score_mcc', 'score_lcc', 'score_aod550']
     
-    # 定义品质因子的默认权重
+    # 定义品质因子的默认权重 (总和为10)
     DEFAULT_WEIGHTS = {
-        'score_boundary': 0.6,  # 云边界距离是最重要的品质因子
-        'score_hcc':      0.1,  # 高云形态是次要的品质因子
-        'score_aod550':   0.3   # 大气透明度(AOD)作为新的品质因子
+        'score_boundary': 8.0,  # 云边界距离是最重要的品质因子
+        'score_hcc':      1.0,  # 高云形态
+        'score_mcc':      1.0,  # 中云形态也作为品质的一部分
     }
 
     def __init__(self, weather_data: xr.Dataset, weights: Dict[str, float] = None):
         """
         初始化计算器。
-
-        Args:
-            weather_data (xr.Dataset): 包含所有必需气象变量的 xarray 数据集。
-                                       必须包含: 'hcc', 'mcc', 'lcc', 'aod550'。
-            weights (Dict[str, float], optional): 自定义的品质因子权重。
         """
         required_vars = ['hcc', 'mcc', 'lcc', 'aod550']
         if not all(var in weather_data for var in required_vars):
@@ -53,7 +49,6 @@ class GlowIndexCalculator:
         self.weather_data = weather_data
         self.astro_service = AstronomyService()
         
-        # 设置权重
         if weights:
             self.weights = self.DEFAULT_WEIGHTS.copy()
             self.weights.update(weights)
@@ -65,56 +60,54 @@ class GlowIndexCalculator:
     
     def _normalize_weights(self):
         """确保品质因子的权重之和为1，便于理解和调试。"""
-        quality_factor_names = [k for k in self.weights if k.startswith('score_')]
+        quality_factor_names = ['score_boundary', 'score_hcc', 'score_mcc']
         total_weight = sum(self.weights.get(f, 0) for f in quality_factor_names)
         if total_weight > 0 and not math.isclose(total_weight, 1.0):
-             logging.warning(f"品质因子权重之和不为1 (当前为: {total_weight:.2f})，已自动归一化。")
-             for key in quality_factor_names:
-                self.weights[key] /= total_weight
+            logging.info(f"品质因子权重之和不为1 (当前为: {total_weight:.2f})，已自动归一化。")
+            for key in quality_factor_names:
+                if key in self.weights:
+                    self.weights[key] /= total_weight
     
     # ==========================================================
-    # --- 评分函数 ---
+    # --- 评分函数 (函数本身不变，但其作用已重新分类) ---
     # ==========================================================
 
     def _score_from_boundary_distance(self, distance_km: float) -> float:
-        """因子1: 根据云边界的距离，使用三角形函数计算得分。"""
-        if distance_km >= self.MAX_SEARCH_DISTANCE_KM:
-            return 0.0
-        if distance_km <= self.OPTIMAL_DISTANCE_KM:
-            return distance_km / self.OPTIMAL_DISTANCE_KM
-        else:
-            score = 1.0 - (distance_km - self.OPTIMAL_DISTANCE_KM) / (self.MAX_SEARCH_DISTANCE_KM - self.OPTIMAL_DISTANCE_KM)
-            return max(0.0, score)
+        """品质因子1: 云边界距离"""
+        if distance_km >= self.MAX_SEARCH_DISTANCE_KM: return 0.0
+        if distance_km <= self.OPTIMAL_DISTANCE_KM: return distance_km / self.OPTIMAL_DISTANCE_KM
+        score = 1.0 - (distance_km - self.OPTIMAL_DISTANCE_KM) / (self.MAX_SEARCH_DISTANCE_KM - self.OPTIMAL_DISTANCE_KM)
+        return max(0.0, score)
     
     def _score_from_hcc(self, hcc: float) -> float:
-        """因子2: 根据高云覆盖率 (hcc) 进行分段评分。"""
+        """品质因子2: 高云覆盖率"""
         if 0.4 <= hcc <= 0.8: return 1.0
         elif hcc > 0.8: return 0.7
         elif 0.1 <= hcc < 0.4: return 0.6
         else: return 0.1
 
     def _score_from_mcc(self, mcc: float) -> float:
-        """因子3: 根据中云覆盖率 (mcc) 进行分段评分。"""
+        """品质因子3: 中云覆盖率"""
         if 0.2 <= mcc <= 0.5: return 1.0
         elif 0.5 < mcc <= 0.8: return 0.7
         elif mcc > 0.8: return 0.3
         else: return 0.2
 
     def _score_from_lcc(self, lcc: float) -> float:
-        """因子4: 根据低云覆盖率 (lcc) 进行分段评分。"""
+        """惩罚因子1: 低云遮挡"""
         if lcc <= 0.1: return 1.0
         elif 0.1 < lcc <= 0.3: return 0.6
         elif 0.3 < lcc <= 0.5: return 0.1
         else: return 0.0
 
     def _score_from_aod550(self, aod: float) -> float:
-        """因子5: 根据AOD550 (大气透明度) 进行分段评分。"""
+        """惩罚因子2: 大气透明度"""
         if aod < 0.3: return 1.0
         elif aod < 0.6: return 0.5
         else: return 0.0
 
     # ==========================================================
-    # --- 核心计算逻辑 ---
+    # --- 核心计算逻辑 (已更新为新品质/惩罚模型) ---
     # ==========================================================
 
     def calculate_for_point(
@@ -126,11 +119,10 @@ class GlowIndexCalculator:
     ) -> Dict[str, float]:
         """
         为单个点计算最终的火烧云指数及其所有分项得分。
-        模型: 最终得分 = (品质因子加权平均) * (基础因子乘积)
+        新模型: 最终得分 = (品质分) * (惩罚分)
         """
         if factors is None: factors = self.ALL_FACTORS
         
-        # 获取所有相关气象数据
         local_hcc = self._get_value_at_point('hcc', lat, lon)
         local_mcc = self._get_value_at_point('mcc', lat, lon)
         local_lcc = self._get_value_at_point('lcc', lat, lon)
@@ -144,8 +136,8 @@ class GlowIndexCalculator:
                 'score_lcc': self._score_from_lcc(local_lcc),
                 'score_aod550': self._score_from_aod550(local_aod550)
             }
-
-        # 计算所有分项得分
+        
+        # 1. 计算所有分项得分
         sun_pos = self.astro_service.get_sun_position(lat, lon, utc_time)
         boundary_distance = self._find_cloud_boundary_distance(lat, lon, sun_pos['azimuth'])
         all_scores = {
@@ -156,18 +148,18 @@ class GlowIndexCalculator:
             'score_aod550': self._score_from_aod550(local_aod550)
         }
         
-        # a. 计算“品质”得分 (加权平均)
-        quality_factors = ['score_boundary', 'score_hcc', 'score_aod550']
+        # 2. 计算“品质分” (加权平均)
+        quality_factors = ['score_boundary', 'score_hcc', 'score_mcc']
         total_quality_weight = sum(self.weights.get(f, 0) for f in quality_factors if f in factors)
         weighted_quality_score_sum = sum(all_scores[f] * self.weights.get(f, 0) for f in quality_factors if f in factors)
         quality_score = weighted_quality_score_sum / total_quality_weight if total_quality_weight > 0 else 0.0
 
-        # b. 计算“基础/通行证”得分 (相乘)
-        base_factors = ['score_mcc', 'score_lcc']
-        base_score = np.prod([all_scores[f] for f in base_factors if f in factors]) if base_factors else 1.0
+        # 3. 计算“惩罚分” (相乘)
+        penalty_factors = ['score_aod550', 'score_lcc']
+        penalty_score = np.prod([all_scores[f] for f in penalty_factors if f in factors]) if penalty_factors else 1.0
 
-        # c. 最终得分 = 品质分 * 基础分
-        all_scores['final_score'] = quality_score * base_score
+        # 4. 最终得分 = 品质分 * 惩罚分
+        all_scores['final_score'] = quality_score * penalty_score
         return all_scores
 
     # ==========================================================

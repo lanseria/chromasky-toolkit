@@ -72,35 +72,52 @@ def run_calculation():
                 file_path = data_dir / f"{var}_{time_str}.nc"
                 if not file_path.exists():
                     raise FileNotFoundError(f"输入文件未找到: {file_path.relative_to(config.PROJECT_ROOT)}")
-                data_arrays[var] = xr.open_dataarray(file_path)
+                data_array = xr.open_dataarray(file_path)
+                data_arrays[var] = data_array.rename(var)
             
             weather_dataset = xr.Dataset(data_arrays)
-            logger.info("  ✅ 所有必需的云量数据加载成功。")
+            logger.info("  ✅ 所有必需的云量和AOD数据加载成功。")
 
             # 3. 初始化计算器
             calculator = GlowIndexCalculator(weather_data=weather_dataset)
             
-            # 4. 创建活动区域掩码 (只计算日出/日落区域)
-            # 使用文件中记录的精确UTC时间
+            # 4. 创建掩码
             observation_time_utc = datetime.fromisoformat(weather_dataset.hcc.attrs['original_utc_time'])
-            active_mask = calculator.astro_service.create_event_mask(
+            
+            # 4a. 创建基于天文事件（日出/日落）的掩码
+            astro_mask = calculator.astro_service.create_event_mask(
                 weather_dataset.latitude,
                 weather_dataset.longitude,
                 observation_time_utc,
-                event=event_type, # 'sunrise' or 'sunset'
+                event=event_type,
                 window_minutes=config.EVENT_WINDOW_MINUTES
             )
+            logger.info(f"  - 天文事件掩码（日出/日落）包含 {int(astro_mask.sum())} 个活动点。")
+
+            # 4b. 创建基于 CALCULATION_AREA 的地理范围掩码
+            lats = weather_dataset.latitude
+            lons = weather_dataset.longitude
+            calc_area = config.CALCULATION_AREA
             
-            active_points_count = int(active_mask.sum())
+            calculation_area_mask = (
+                (lats >= calc_area['south']) & (lats <= calc_area['north']) &
+                (lons >= calc_area['west']) & (lons <= calc_area['east'])
+            )
+            logger.info(f"  - 已应用计算范围，该范围包含 {int(calculation_area_mask.sum())} 个点。")
+
+            # 4c. 将两个掩码合并，得到最终的计算区域
+            final_active_mask = astro_mask & calculation_area_mask
+            
+            active_points_count = int(final_active_mask.sum())
             if active_points_count == 0:
-                logger.warning(f"  - 在 {event_type} 时间窗口内没有找到任何活动区域，跳过计算。")
+                logger.warning(f"  - 在天文事件和指定计算范围的交集中没有找到任何活动点，跳过计算。")
                 continue
             logger.info(f"  - 将为 {active_points_count} 个活动格点计算指数...")
 
             # 5. 执行网格计算
             results_ds = calculator.calculate_for_grid(
                 utc_time=observation_time_utc,
-                active_mask=active_mask,
+                active_mask=final_active_mask,
                 factors=GlowIndexCalculator.ALL_FACTORS
             )
 
