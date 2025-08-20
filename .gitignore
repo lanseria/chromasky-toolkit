@@ -1,0 +1,38 @@
+# .gitignore
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# IDE / Editor
+.idea/
+.vscode/
+
+# Data and Outputs (通常不把大数据和生成文件加入版本库)
+data/
+outputs/
+*.csv
+*.json
+*.html
+
+# Environment variables
+.env
+*.env
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+*.egg-info
+
+map_data/
+notebooks/
+
+project_context.txt
+.DS_Store
+
