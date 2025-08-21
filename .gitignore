@@ -19,7 +19,6 @@ data/
 outputs/
 *.csv
 *.json
-*.html
 
 # Environment variables
 .env

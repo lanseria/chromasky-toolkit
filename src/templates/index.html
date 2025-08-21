@@ -1,0 +1,89 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChromaSky Toolkit - 火烧云指数预报</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #ffffff;
+            text-align: center;
+            border-bottom: 2px solid #333;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #bb86fc;
+            margin-top: 40px;
+            border-left: 4px solid #bb86fc;
+            padding-left: 10px;
+        }
+        .image-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        .image-card {
+            background-color: #1e1e1e;
+            border: 1px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            transition: transform 0.2s;
+        }
+        .image-card:hover {
+            transform: scale(1.03);
+        }
+        .image-card img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        .image-card .title {
+            padding: 15px;
+            font-weight: bold;
+            text-align: center;
+        }
+        .no-images {
+            text-align: center;
+            margin-top: 50px;
+            font-size: 1.2em;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ChromaSky Toolkit - 火烧云指数预报</h1>
+
+        {% if image_groups %}
+            {% for group in image_groups %}
+                <h2>{{ group.group_title }}</h2>
+                <div class="image-gallery">
+                    {% for image in group.images %}
+                    <div class="image-card">
+                        <a href="{{ image.url }}" target="_blank">
+                            <img src="{{ image.url }}" alt="{{ image.title }}">
+                        </a>
+                        <div class="title">{{ image.title }}</div>
+                    </div>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        {% else %}
+            <p class="no-images">当前没有可用的预报图片。请等待下一次定时任务运行。</p>
+        {% endif %}
+    </div>
+</body>
+</html>
