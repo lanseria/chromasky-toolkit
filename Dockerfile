@@ -5,6 +5,10 @@ FROM m.daocloud.io/docker.io/library/python:3.12
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# --- 新增：为 Cartopy 指定一个明确的数据目录 ---
+# 这样可以控制 Cartopy 在构建和运行时在哪里寻找和存储数据
+ENV CARTOPY_DATA_DIR=/app/cartopy_data
+
 # 设置容器内的工作目录
 WORKDIR /app
 
@@ -39,12 +43,22 @@ COPY pyproject.toml .
 # 安装 Python 依赖
 RUN pip install --no-cache-dir -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple .
 
+
+# --- 新增：在构建镜像时预下载 Cartopy 所需的地图数据 ---
+# 这一步以 root 用户身份运行，有权限下载和写入文件
+# 它会下载 map_drawer.py 中使用的 land, ocean, coastline 等数据
+RUN python -c "import cartopy.io.shapereader as shpreader; \
+    shpreader.natural_earth(resolution='50m', category='physical', name='land'); \
+    shpreader.natural_earth(resolution='50m', category='physical', name='ocean'); \
+    shpreader.natural_earth(resolution='50m', category='physical', name='coastline');"
+
+
 # 复制应用程序的源代码和工具脚本
 COPY src/ src/
 COPY tools/ tools/
 
-# 在构建镜像时就运行地图数据下载脚本
-# 这样地图数据就会被包含在最终的镜像里，无需每次启动容器都下载
+# 在构建镜像时就运行地图和字体数据下载脚本
+# 这样数据就会被包含在最终的镜像里，无需每次启动容器都下载
 RUN python tools/setup_map_data.py
 
 # 创建运行时需要的数据和输出目录
@@ -52,6 +66,7 @@ RUN python tools/setup_map_data.py
 RUN mkdir -p /app/src/data /app/src/outputs
 
 # 将整个工作目录的所有权交给刚刚创建的 app 用户
+# 这会将我们刚刚下载的 cartopy_data 目录的所有权也交给 app 用户
 RUN chown -R app:app /app
 
 # 切换到非 root 用户

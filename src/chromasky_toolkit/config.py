@@ -72,7 +72,7 @@ SUNRISE_EVENT_TIMES: List[str] = ["04:00", "05:00", "06:00", "07:00", "08:00"]
 SUNSET_EVENT_TIMES: List[str] = ["18:00", "19:00", "20:00", "21:00"]
 # SUNSET_EVENT_TIMES: List[str] = ["19:00"]
 
-# --- 新增：未来事件处理意图配置 ---
+# --- 未来事件处理意图配置 ---
 # 定义您想处理的未来事件列表。
 # 可用选项: 'today_sunrise', 'today_sunset', 'tomorrow_sunrise', 'tomorrow_sunset'
 FUTURE_TARGET_EVENT_INTENTIONS: List[Literal['today_sunrise', 'today_sunset', 'tomorrow_sunrise', 'tomorrow_sunset']] = [
@@ -94,7 +94,7 @@ PROCESSED_DATA_DIR: Path = DATA_DIR / "processed"
 # 为不同数据源定义更具体的路径
 ERA5_DATA_DIR: Path = RAW_DATA_DIR / "era5"
 GFS_DATA_DIR: Path = RAW_DATA_DIR / "gfs"
-CAMS_AOD_DATA_DIR: Path = RAW_DATA_DIR / "cams_aod" # 新增: CAMS AOD 数据目录
+CAMS_AOD_DATA_DIR: Path = RAW_DATA_DIR / "cams_aod" # CAMS AOD 数据目录
 
 # 6.3 map_data 目录下的具体文件 (示例)
 # 这样在代码中就可以直接使用 config.CHINA_SHP_PATH
@@ -105,11 +105,13 @@ CITIES_CSV_PATH: Path = MAP_DATA_DIR / "china_cities.csv"
 # 6.4 outputs 目录下的子目录
 MAP_OUTPUTS_DIR: Path = OUTPUTS_DIR / "maps"
 FIGURE_OUTPUTS_DIR: Path = OUTPUTS_DIR / "figures"
-CALCULATION_OUTPUTS_DIR: Path = OUTPUTS_DIR / "calculations" # 新增：用于存放计算结果
-
+CALCULATION_OUTPUTS_DIR: Path = OUTPUTS_DIR / "calculations" # 用于存放计算结果
+# 6.5 outputs 目录下的子目录
+FONT_DIR: Path = PROJECT_ROOT / "fonts"  # 存放下载的字体文件
 # --- 7. 绘图样式配置 (可选，但推荐) ---
 # 将颜色、字体等也放入配置，方便统一修改风格
-MAP_FONT: str | None = None
+MAP_FONT_NAME: str = "LXGW WenKai" # 我们要使用的字体名称
+MAP_FONT_FILENAME: str = "LXGWWenKai-Regular.ttf" # 字体对应的文件名
 CHROMA_SKY_COLORS: List[str] = ["#3b82f6", "#fde047", "#f97316", "#ef4444", "#ec4899"]
 CHROMA_SKY_COLOR_NODES: List[float] = [0.0, 0.5, 0.7, 0.85, 1.0]
 
@@ -117,12 +119,12 @@ CHROMA_SKY_COLOR_NODES: List[float] = [0.0, 0.5, 0.7, 0.85, 1.0]
 GFS_BASE_URL: str = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
 GFS_VARS_LIST: List[str] =  ['hcc', 'mcc', 'lcc']
 
-# --- 9. CAMS AOD 预报数据配置 (新增部分) ---
+# --- 9. CAMS AOD 预报数据配置 ---
 CAMS_DATASET_NAME: str = 'cams-global-atmospheric-composition-forecasts'
 CAMS_VARS_MAP: Dict[str, str] = {
     'aod550': 'total_aerosol_optical_depth_550nm',
 }
 
-# --- 10. 计算参数配置 (新增部分) ---
+# --- 10. 计算参数配置 ---
 # 定义在天文事件（日出/日落）前后多长时间的窗口内进行计算
 EVENT_WINDOW_MINUTES: int = 30

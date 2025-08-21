@@ -19,7 +19,7 @@ data/
 outputs/
 *.csv
 *.json
-
+*.ttf
 # Environment variables
 .env
 *.env

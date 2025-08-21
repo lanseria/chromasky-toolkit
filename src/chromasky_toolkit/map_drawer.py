@@ -21,47 +21,45 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("MapDrawer")
 
 # --- 关键修正：智能字体设置 ---
-# --- 最终解决方案：主动扫描并设置可用中文字体 ---
 CHINESE_FONT_FOUND = False
 try:
-    # 步骤 1: 检查 config.py 中是否指定了特定字体
-    if hasattr(config, 'MAP_FONT') and config.MAP_FONT:
-        plt.rcParams['font.sans-serif'] = [config.MAP_FONT]
-        logger.info(f"已根据配置尝试设置指定字体: '{config.MAP_FONT}'。")
+    # 步骤 1: 优先加载项目内的自定义字体
+    custom_font_path = config.FONT_DIR / config.MAP_FONT_FILENAME
+    if custom_font_path.exists():
+        logger.info(f"✅ 找到项目自定义字体: {custom_font_path}")
+        # 将字体文件添加到 matplotlib 的字体管理器中
+        fm.fontManager.addfont(str(custom_font_path))
+        # 设置 matplotlib 使用该字体
+        plt.rcParams['font.sans-serif'] = [config.MAP_FONT_NAME]
+        logger.info(f"已将默认字体设置为 '{config.MAP_FONT_NAME}'。")
+        CHINESE_FONT_FOUND = True
+    else:
+        logger.warning(f"未在 {config.FONT_DIR} 找到自定义字体 '{config.MAP_FONT_FILENAME}'。将尝试扫描系统字体。")
+
+    # 步骤 2: 如果自定义字体未找到，则扫描系统字体作为备用方案
+    if not CHINESE_FONT_FOUND:
+        CHINESE_FONT_KEYWORDS = [
+            'SimSun', 'SimHei', 'Microsoft YaHei', 'DengXian', 'FangSong', 'KaiTi',
+            'PingFang SC', 'Hiragino Sans GB',
+            'Noto Sans CJK SC', 'WenQuanYi Micro Hei',
+            'Heiti', 'Songti', 'Kaiti'
+        ]
+        font_manager = fm.FontManager()
+        for font in font_manager.ttflist:
+            if any(keyword in font.name for keyword in CHINESE_FONT_KEYWORDS):
+                logger.info(f"✅ 找到可用的系统备用中文字体: '{font.name}'。将其设置为默认字体。")
+                plt.rcParams['font.sans-serif'] = [font.name]
+                CHINESE_FONT_FOUND = True
+                break
     
-    # 步骤 2: 无论如何，都设置这个以正确显示负号
-    plt.rcParams['axes.unicode_minus'] = False
-
-    # 步骤 3: 主动扫描系统字体，建立一个更可靠的候选列表
-    # --- vvvv 核心优化 vvvv ---
-    # 定义一个更广泛的、包含常见中文字体名称关键字的列表
-    # 您可以根据上一步脚本的输出，将您系统特有的中文字体名称添加进来
-    CHINESE_FONT_KEYWORDS = [
-        # Windows 常见字体
-        'SimSun', 'SimHei', 'Microsoft YaHei', 'DengXian', 'FangSong', 'KaiTi',
-        # macOS 常见字体
-        'PingFang SC', 'Hiragino Sans GB',
-        # Linux / Noto 常见字体
-        'Noto Sans CJK SC', 'WenQuanYi Micro Hei',
-        # 其他通用名称
-        'Heiti', 'Songti', 'Kaiti'
-    ]
-
-    font_manager = fm.FontManager()
-    
-    for font in font_manager.ttflist:
-        # 检查字体的名称是否包含任何我们定义的关键字
-        if any(keyword in font.name for keyword in CHINESE_FONT_KEYWORDS):
-            logger.info(f"✅ 找到可用的中文字体: '{font.name}'。将其设置为默认字体。")
-            plt.rcParams['font.sans-serif'] = [font.name]
-            CHINESE_FONT_FOUND = True
-            break # 找到第一个就停止，优先使用列表靠前的字体
-
+    # 步骤 3: 最终检查和配置
     if CHINESE_FONT_FOUND:
         logger.info(f"最终使用的字体列表: {plt.rcParams['font.sans-serif']}")
     else:
-        logger.warning("扫描完毕，系统中仍未找到任何可用的中文字体。中文将无法正常显示。")
-    # --- ^^^^ 核心优化 ^^^^ ---
+        logger.warning("系统中仍未找到任何可用的中文字体。中文将无法正常显示。")
+        
+    # 无论如何，都设置此项以正确显示负号
+    plt.rcParams['axes.unicode_minus'] = False
 
 except Exception as e:
     logger.warning(f"设置字体时发生未知错误: {e}")

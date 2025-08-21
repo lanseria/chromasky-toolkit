@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
     scheduler.add_job(run_scheduled_job, 'cron', hour=1, minute=30, id="daily_chromasky_job")
     scheduler.start()
     # 立即触发一次，方便测试
-    # run_scheduled_job()
+    run_scheduled_job()
     yield
     # 应用关闭时执行
     logger.info("服务器关闭，停止定时任务...")
