@@ -115,6 +115,11 @@ python -m chromasky_toolkit.main
     python -m chromasky_toolkit.main --draw-only
     ```
 
+*   **PNG 图片转换为 WebP 格式:**
+    ```bash
+    python -m chromasky_toolkit.main --convert-webp
+    ```
+
 *   **可视化输入数据 (用于调试):**
     此命令会为每个输入变量（高/中/低云, AOD）生成地图，帮助您检查输入数据是否正确。
     ```bash

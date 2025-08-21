@@ -104,6 +104,7 @@ CITIES_CSV_PATH: Path = MAP_DATA_DIR / "china_cities.csv"
 
 # 6.4 outputs 目录下的子目录
 MAP_OUTPUTS_DIR: Path = OUTPUTS_DIR / "maps"
+MAP_WEBP_OUTPUTS_DIR: Path = OUTPUTS_DIR / "maps_webp"
 FIGURE_OUTPUTS_DIR: Path = OUTPUTS_DIR / "figures"
 CALCULATION_OUTPUTS_DIR: Path = OUTPUTS_DIR / "calculations" # 用于存放计算结果
 # 6.5 outputs 目录下的子目录

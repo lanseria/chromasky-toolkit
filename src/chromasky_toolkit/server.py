@@ -68,28 +68,28 @@ async def read_root(request: Request):
     image_groups = []
     
     # 1. 扫描 composite (综合图) 目录
-    composite_dir = config.MAP_OUTPUTS_DIR / "composite"
+    composite_dir = config.MAP_WEBP_OUTPUTS_DIR / "composite"
     if composite_dir.exists():
         composite_images = []
-        for img_path in sorted(composite_dir.glob("*.png"), reverse=True):
+        for img_path in sorted(composite_dir.glob("*.webp"), reverse=True):
             composite_images.append({
                 "title": img_path.stem,
-                "url": f"/static/maps/composite/{img_path.name}"
+                "url": f"/static/maps_webp/composite/{img_path.name}"
             })
         if composite_images:
             image_groups.append({"group_title": "综合最佳指数图", "images": composite_images})
 
     # 2. 扫描 individual (分时图) 目录
-    individual_dir = config.MAP_OUTPUTS_DIR / "individual"
+    individual_dir = config.MAP_WEBP_OUTPUTS_DIR / "individual"
     if individual_dir.exists():
         # 按日期倒序查找子目录
         date_dirs = sorted([d for d in individual_dir.iterdir() if d.is_dir()], reverse=True)
         for date_dir in date_dirs:
             date_images = []
-            for img_path in sorted(date_dir.glob("*.png")):
+            for img_path in sorted(date_dir.glob("*.webp")):
                 date_images.append({
                     "title": img_path.stem.replace("glow_index_", ""),
-                    "url": f"/static/maps/individual/{date_dir.name}/{img_path.name}"
+                    "url": f"/static/maps_webp/individual/{date_dir.name}/{img_path.name}"
                 })
             if date_images:
                 image_groups.append({"group_title": f"分时指数图 - {date_dir.name}", "images": date_images})
