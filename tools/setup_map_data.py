@@ -30,12 +30,7 @@ MAP_ZIP_FILENAME = "china-geodata.zip"
 # --- 字体数据配置 ---
 FONT_BASE_URL = "https://ghfast.top/https://github.com/lxgw/LxgwWenKai/raw/main/fonts/TTF/"
 FONT_FILENAMES = [
-    "LXGWWenKai-Light.ttf",
-    "LXGWWenKai-Medium.ttf",
     "LXGWWenKai-Regular.ttf",
-    "LXGWWenKaiMono-Light.ttf",
-    "LXGWWenKaiMono-Medium.ttf",
-    "LXGWWenKaiMono-Regular.ttf"
 ]
 FONT_TARGET_DIR = config.FONT_DIR
 
