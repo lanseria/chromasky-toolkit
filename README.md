@@ -191,7 +191,7 @@ docker build -t chromasky-toolkit .
 docker run -d \
   -p 8000:8000 \
   --name chromasky-server \
-  --env-file .env \
+  -v "$(pwd)/.env:/app/.env" \
   -v "$(pwd)/data:/app/data" \
   -v "$(pwd)/outputs:/app/outputs" \
   chromasky-toolkit
