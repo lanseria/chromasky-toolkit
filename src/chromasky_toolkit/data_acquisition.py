@@ -50,7 +50,12 @@ def _process_gfs_grib_to_nc(grib_path: Path, target_time_utc: datetime):
 
     local_tz = ZoneInfo(config.LOCAL_TZ)
     try:
-        ds = xr.open_dataset(grib_path, engine="cfgrib", filter_by_keys={'stepType': 'instant'})
+        ds = xr.open_dataset(
+            grib_path,
+            engine="cfgrib",
+            filter_by_keys={'stepType': 'instant'},
+            decode_timedelta=True  # <-- 添加此参数以消除警告并确保未来兼容性
+        )
         
         # <--- NEW: 如果模板尚未创建，则创建它 ---
         if _gfs_grid_template is None:
