@@ -72,9 +72,9 @@
 
     # 步骤 3: 运行容器
     docker run -d \
-      --name chromasky-server \
+      --name chromasky-app \
       -p 8000:8000 \
-      --env-file .env \
+      -v "$(pwd)/.env:/app/.env"
       -v chromasky-data:/app/data \
       -v chromasky-outputs:/app/outputs \
       --restart always \
