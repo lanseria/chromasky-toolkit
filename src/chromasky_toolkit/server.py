@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 # --- 挂载静态文件目录 ---
-app.mount("/static", StaticFiles(directory=config.PROJECT_ROOT / "outputs"), name="static")
+app.mount("/static", StaticFiles(directory=config.OUTPUTS_DIR), name="static")
 
 # --- 设置模板引擎 ---
 templates = Jinja2Templates(directory=config.PROJECT_ROOT / "templates")
