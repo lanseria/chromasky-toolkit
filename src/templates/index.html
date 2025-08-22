@@ -1,89 +1,134 @@
-<!-- templates/index.html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ChromaSky Toolkit - 火烧云指数预报</title>
+    <title>火烧云指数预报 - 最新</title>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background-color: #121212;
-            color: #e0e0e0;
-            margin: 0;
-            padding: 20px;
+        body { font-family: sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 2em; }
+        .container { max-width: 1200px; margin: auto; }
+        h1, h2 { color: #f39c12; border-bottom: 2px solid #333; padding-bottom: 10px; }
+        /* 让H1标题可被点击 */
+        h1 { cursor: pointer; user-select: none; /* 防止双击选中文本 */ } 
+        .header { margin-bottom: 2em; }
+        .header-main { display: flex; align-items: baseline; gap: 20px; }
+        .archive-link { font-size: 16px; text-decoration: none; color: #3498db; }
+        .archive-link:hover { text-decoration: underline; }
+        .group { background-color: #1e1e1e; border-radius: 8px; padding: 1.5em; margin-bottom: 2em; }
+        .composite-image img { max-width: 100%; height: auto; border-radius: 5px; }
+        h3 { color: #e0e0e0; margin-top: 1.5em; }
+        .individual-gallery { display: flex; flex-wrap: wrap; gap: 1em; }
+        .individual-item { text-align: center; }
+        .individual-item img { max-width: 250px; height: auto; border-radius: 5px; border: 1px solid #444; }
+        .individual-item p { margin-top: 0.5em; font-size: 0.9em; color: #aaa; }
+        /* 用于显示触发状态的消息 */
+        .status-message {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background-color: #2ecc71; color: white; padding: 10px 20px;
+            border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+            opacity: 0; transition: opacity 0.5s ease-in-out; pointer-events: none;
         }
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        h1 {
-            color: #ffffff;
-            text-align: center;
-            border-bottom: 2px solid #333;
-            padding-bottom: 10px;
-        }
-        h2 {
-            color: #bb86fc;
-            margin-top: 40px;
-            border-left: 4px solid #bb86fc;
-            padding-left: 10px;
-        }
-        .image-gallery {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-            gap: 20px;
-        }
-        .image-card {
-            background-color: #1e1e1e;
-            border: 1px solid #333;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-            transition: transform 0.2s;
-        }
-        .image-card:hover {
-            transform: scale(1.03);
-        }
-        .image-card img {
-            width: 100%;
-            height: auto;
-            display: block;
-        }
-        .image-card .title {
-            padding: 15px;
-            font-weight: bold;
-            text-align: center;
-        }
-        .no-images {
-            text-align: center;
-            margin-top: 50px;
-            font-size: 1.2em;
-            color: #888;
-        }
+        .status-message.show { opacity: 1; }
+        .status-message.error { background-color: #e74c3c; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>ChromaSky Toolkit - 火烧云指数预报</h1>
+        <div class="header">
+            <div class="header-main">
+                <h1 id="mainTitle">火烧云指数预报 - 最新</h1>
+                <a class="archive-link" href="/archive">查看全部历史</a>
+            </div>
+        </div>
 
         {% if image_groups %}
             {% for group in image_groups %}
+            <div class="group">
                 <h2>{{ group.group_title }}</h2>
-                <div class="image-gallery">
-                    {% for image in group.images %}
-                    <div class="image-card">
+                <div class="composite-image">
+                    <a href="{{ group.composite_image.url }}" target="_blank">
+                        <img src="{{ group.composite_image.url }}" alt="{{ group.composite_image.title }}">
+                    </a>
+                </div>
+
+                {% if group.individual_images %}
+                <h3>对应的分时指数图</h3>
+                <div class="individual-gallery">
+                    {% for image in group.individual_images %}
+                    <div class="individual-item">
                         <a href="{{ image.url }}" target="_blank">
                             <img src="{{ image.url }}" alt="{{ image.title }}">
                         </a>
-                        <div class="title">{{ image.title }}</div>
+                        <p>{{ image.title }}</p>
                     </div>
                     {% endfor %}
                 </div>
+                {% endif %}
+            </div>
             {% endfor %}
         {% else %}
-            <p class="no-images">当前没有可用的预报图片。请等待下一次定时任务运行。</p>
+            <p>暂无预报图片。请尝试手动触发更新或等待每日自动任务执行。</p>
         {% endif %}
     </div>
+
+    <!-- 用于显示状态消息的元素 -->
+    <div id="statusMessage" class="status-message"></div>
+
+    <script>
+        const mainTitle = document.getElementById('mainTitle');
+        const statusMessage = document.getElementById('statusMessage');
+
+        let clickCount = 0;
+        let lastClickTime = 0;
+
+        mainTitle.addEventListener('click', () => {
+            const now = new Date().getTime();
+            
+            // 如果两次点击间隔超过 500ms，则重置计数器
+            if (now - lastClickTime > 500) {
+                clickCount = 0;
+            }
+            
+            clickCount++;
+            lastClickTime = now;
+
+            if (clickCount === 3) {
+                // 重置计数器，防止再次触发
+                clickCount = 0;
+                triggerUpdate();
+            }
+        });
+
+        async function triggerUpdate() {
+            showStatus('正在触发后台更新任务...', 'info');
+
+            try {
+                const response = await fetch('/trigger-job', { method: 'POST' });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showStatus(data.message, 'success');
+                } else {
+                    showStatus(`错误: ${data.detail || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                showStatus(`请求失败: ${error}`, 'error');
+            }
+        }
+
+        function showStatus(message, type = 'success') {
+            statusMessage.textContent = message;
+            statusMessage.className = 'status-message'; // Reset classes
+            statusMessage.classList.add('show');
+            if (type === 'error') {
+                statusMessage.classList.add('error');
+            }
+
+            // 5秒后自动隐藏消息
+            setTimeout(() => {
+                statusMessage.classList.remove('show');
+            }, 5000);
+        }
+    </script>
 </body>
 </html>

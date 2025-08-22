@@ -53,7 +53,6 @@ RUN python -c "import cartopy.io.shapereader as shpreader; \
 # 复制应用程序的源代码和工具脚本
 COPY src/ src/
 COPY tools/ tools/
-COPY .env src/.env
 
 # 在构建镜像时就运行地图和字体数据下载脚本
 RUN python tools/setup_map_data.py

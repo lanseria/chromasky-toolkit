@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>火烧云指数预报 - 全部历史</title>
+    <style>
+        body { font-family: sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 2em; }
+        .container { max-width: 1200px; margin: auto; }
+        h1, h2 { color: #f39c12; border-bottom: 2px solid #333; padding-bottom: 10px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2em; }
+        .controls a {
+            background-color: #3498db; color: white; padding: 10px 15px; text-decoration: none;
+            border-radius: 5px; border: none; font-size: 16px; cursor: pointer; transition: background-color 0.3s;
+        }
+        .controls a:hover { background-color: #2980b9; }
+        .group { background-color: #1e1e1e; border-radius: 8px; padding: 1.5em; margin-bottom: 2em; }
+        .gallery { display: flex; flex-wrap: wrap; gap: 1em; }
+        .image-item { text-align: center; }
+        .image-item img { max-width: 250px; height: auto; border-radius: 5px; border: 1px solid #444; }
+        .image-item p { margin-top: 0.5em; font-size: 0.9em; color: #aaa; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>火烧云指数预报 - 全部历史</h1>
+            <div class="controls">
+                <a href="/">返回最新</a>
+            </div>
+        </div>
+
+        {% if image_groups %}
+            {% for group in image_groups %}
+            <div class="group">
+                <h2>{{ group.group_title }}</h2>
+                <div class="gallery">
+                    {% for image in group.images %}
+                    <div class="image-item">
+                        <a href="{{ image.url }}" target="_blank">
+                            <img src="{{ image.url }}" alt="{{ image.title }}">
+                        </a>
+                        <p>{{ image.title }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <p>暂无预报图片。</p>
+        {% endif %}
+    </div>
+</body>
+</html>
