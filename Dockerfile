@@ -57,9 +57,6 @@ COPY tools/ tools/
 # 在构建镜像时就运行地图和字体数据下载脚本
 RUN python tools/setup_map_data.py
 
-# 创建运行时需要的数据和输出目录
-RUN mkdir -p /app/src/data /app/src/outputs
-
 # 将整个工作目录的所有权交给刚刚创建的 app 用户
 RUN chown -R app:app /app
 
