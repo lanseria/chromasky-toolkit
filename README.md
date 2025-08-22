@@ -201,4 +201,15 @@ docker run -d \
   -v "$(pwd)/outputs:/app/src/outputs" \
   chromasky-toolkit
 
+# 1. 创建一个 Docker 命名卷 (只需执行一次)
+docker volume create chromasky-data
+docker volume create chromasky-outputs
+
+# 2. 运行容器，并将命名卷挂载到正确的路径
+docker run -d --name chromasky-app -p 8000:8000 \
+  -v chromasky-data:/app/data \
+  -v chromasky-outputs:/app/outputs \
+  --env-file .env \
+  chromasky-toolkit
+
 ```

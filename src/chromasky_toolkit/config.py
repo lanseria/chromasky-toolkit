@@ -84,9 +84,10 @@ FUTURE_TARGET_EVENT_INTENTIONS: List[Literal['today_sunrise', 'today_sunset', 't
 # 这是一个非常好的实践，将所有路径常量化
 
 # 6.1 顶级数据目录
-DATA_DIR: Path = PROJECT_ROOT / "data"
-MAP_DATA_DIR: Path = PROJECT_ROOT / "map_data"
-OUTPUTS_DIR: Path = PROJECT_ROOT / "outputs"
+DATA_DIR: Path = PROJECT_ROOT.parent / "data"          # 原来是 PROJECT_ROOT / "data"
+MAP_DATA_DIR: Path = PROJECT_ROOT.parent / "map_data"    # 原来是 PROJECT_ROOT / "map_data"
+OUTPUTS_DIR: Path = PROJECT_ROOT.parent / "outputs"      # 原来是 PROJECT_ROOT / "outputs"
+FONT_DIR: Path = PROJECT_ROOT.parent / "fonts"         # 原来是 PROJECT_ROOT / "fonts"
 
 # 6.2 data 目录下的子目录
 RAW_DATA_DIR: Path = DATA_DIR / "raw"
@@ -107,8 +108,7 @@ MAP_OUTPUTS_DIR: Path = OUTPUTS_DIR / "maps"
 MAP_WEBP_OUTPUTS_DIR: Path = OUTPUTS_DIR / "maps_webp"
 FIGURE_OUTPUTS_DIR: Path = OUTPUTS_DIR / "figures"
 CALCULATION_OUTPUTS_DIR: Path = OUTPUTS_DIR / "calculations" # 用于存放计算结果
-# 6.5 outputs 目录下的子目录
-FONT_DIR: Path = PROJECT_ROOT / "fonts"  # 存放下载的字体文件
+
 # --- 7. 绘图样式配置 (可选，但推荐) ---
 # 将颜色、字体等也放入配置，方便统一修改风格
 MAP_FONT_NAME: str = "LXGW WenKai" # 我们要使用的字体名称

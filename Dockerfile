@@ -44,21 +44,23 @@ COPY pyproject.toml .
 # 安装 Python 依赖
 RUN pip install --no-cache-dir -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple .
 
+# 复制应用程序的源代码和工具脚本
+COPY src/ src/
+COPY tools/ tools/
+
+RUN mkdir -p /app/data /app/outputs /app/map_data /app/fonts /app/cartopy_data
+
 # --- 在构建镜像时以 root 身份预下载 Cartopy 所需的地图数据 ---
 RUN python -c "import cartopy.io.shapereader as shpreader; \
     shpreader.natural_earth(resolution='50m', category='physical', name='land'); \
     shpreader.natural_earth(resolution='50m', category='physical', name='ocean'); \
     shpreader.natural_earth(resolution='50m', category='physical', name='coastline');"
 
-# 复制应用程序的源代码和工具脚本
-COPY src/ src/
-COPY tools/ tools/
-
 # 在构建镜像时就运行地图和字体数据下载脚本
 RUN python tools/setup_map_data.py
 
 # 将整个工作目录的所有权交给刚刚创建的 app 用户
-RUN chown -R app:app /app
+RUN chown -R app:app /app/data /app/outputs /app/map_data /app/fonts /app/cartopy_data
 
 # --- 关键修复 3: 为用户明确设置 HOME 环境变量 ---
 ENV HOME=/app
@@ -70,6 +72,11 @@ ENV PYTHONPATH=/app/src
 
 # 声明容器运行时监听的端口
 EXPOSE 8000
+
+# --- 新增: 为数据和输出目录声明卷 ---
+# 这明确表示这些目录用于存储持久化数据
+VOLUME /app/data
+VOLUME /app/outputs
 
 # 容器启动时运行的命令
 ENTRYPOINT ["uvicorn", "chromasky_toolkit.server:app", "--host", "0.0.0.0", "--port", "8000"]
