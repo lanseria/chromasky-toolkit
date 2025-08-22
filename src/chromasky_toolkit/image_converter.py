@@ -41,10 +41,10 @@ def _convert_single_image(source_path: Path) -> tuple[str, str | None]:
                 method=WEBP_METHOD
             )
         
-        return str(source_path.relative_to(config.PROJECT_ROOT)), str(target_path.relative_to(config.PROJECT_ROOT))
+        return str(source_path.relative_to(config.LOG_BASE_PATH)), str(target_path.relative_to(config.LOG_BASE_PATH))
     except Exception as e:
         logger.error(f"转换文件 {source_path.name} 失败: {e}")
-        return str(source_path.relative_to(config.PROJECT_ROOT)), None
+        return str(source_path.relative_to(config.LOG_BASE_PATH)), None
 
 def run_conversion():
     """
@@ -68,7 +68,7 @@ def run_conversion():
         return
 
     logger.info(f"找到 {len(png_files)} 个 PNG 文件准备转换到 WebP 格式。")
-    logger.info(f"目标目录: {target_dir.relative_to(config.PROJECT_ROOT)}")
+    logger.info(f"目标目录: {target_dir.relative_to(config.LOG_BASE_PATH)}")
     logger.info(f"转换参数: Quality={WEBP_QUALITY}, Effort(Method)={WEBP_METHOD}")
     
     # 使用并行处理加速转换

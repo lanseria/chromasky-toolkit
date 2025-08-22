@@ -85,7 +85,7 @@ def _process_gfs_grib_to_nc(grib_path: Path, target_time_utc: datetime):
                 
                 output_path = output_dir / f"{short_name}_{local_time_str_path}.nc"
                 data_slice.to_netcdf(output_path)
-                logger.info(f"  ✅ [GFS] 已处理并保存: {output_path.relative_to(config.PROJECT_ROOT)}")
+                logger.info(f"  ✅ [GFS] 已处理并保存: {output_path.relative_to(config.LOG_BASE_PATH)}")
             else:
                 logger.warning(f"  - 在GRIB文件中未找到变量: {short_name}")
     except Exception as e:
@@ -217,7 +217,7 @@ def _process_cams_nc_to_nc(raw_nc_path: Path, target_events: Dict[str, datetime]
                         # 5. 保存重采样后的文件
                         output_path = output_dir / f"{short_name}_{local_time_str_path}.nc"
                         resampled_slice.to_netcdf(output_path)
-                        logger.info(f"  ✅ [CAMS] 已处理并保存对齐后的文件: {output_path.relative_to(config.PROJECT_ROOT)}")
+                        logger.info(f"  ✅ [CAMS] 已处理并保存对齐后的文件: {output_path.relative_to(config.LOG_BASE_PATH)}")
 
     except Exception as e:
         logger.error(f"❌ [CAMS] 处理原始 NetCDF 文件 {raw_nc_path.name} 时出错: {e}", exc_info=True)

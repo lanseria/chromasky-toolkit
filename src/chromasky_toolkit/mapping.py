@@ -55,7 +55,7 @@ def run_drawing():
                 result_path = calc_dir / f"glow_index_result_{time_str}.nc"
                 
                 if not result_path.exists():
-                    raise FileNotFoundError(f"计算结果文件未找到: {result_path.relative_to(config.PROJECT_ROOT)}")
+                    raise FileNotFoundError(f"计算结果文件未找到: {result_path.relative_to(config.LOG_BASE_PATH)}")
 
                 # 加载计算结果
                 results_ds = xr.open_dataset(result_path)
@@ -81,7 +81,7 @@ def run_drawing():
                     title=map_title,
                     output_path=output_path,
                 )
-                logger.info(f"  ✅ 分时地图已保存至: {output_path.relative_to(config.PROJECT_ROOT)}")
+                logger.info(f"  ✅ 分时地图已保存至: {output_path.relative_to(config.LOG_BASE_PATH)}")
 
                 # 收集数据用于生成本组的综合图
                 all_glow_index_arrays.append(final_score_grid)
@@ -118,7 +118,7 @@ def run_drawing():
                     title=composite_map_title,
                     output_path=composite_map_output_path,
                 )
-                logger.info(f"✅ 综合最佳地图已保存至: {composite_map_output_path.relative_to(config.PROJECT_ROOT)}")
+                logger.info(f"✅ 综合最佳地图已保存至: {composite_map_output_path.relative_to(config.LOG_BASE_PATH)}")
 
             except Exception as e:
                 logger.error(f"❌ 生成组 '{group_key}' 的综合地图时发生错误: {e}", exc_info=True)

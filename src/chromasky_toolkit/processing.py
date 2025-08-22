@@ -71,7 +71,7 @@ def run_calculation():
             for var in required_vars:
                 file_path = data_dir / f"{var}_{time_str}.nc"
                 if not file_path.exists():
-                    raise FileNotFoundError(f"输入文件未找到: {file_path.relative_to(config.PROJECT_ROOT)}")
+                    raise FileNotFoundError(f"输入文件未找到: {file_path.relative_to(config.LOG_BASE_PATH)}")
                 data_array = xr.open_dataarray(file_path)
                 data_arrays[var] = data_array.rename(var)
             
@@ -129,7 +129,7 @@ def run_calculation():
             results_ds.attrs['description'] = f"Glow index calculation result for {event_name}"
             results_ds.attrs['calculation_utc_time'] = datetime.now(timezone.utc).isoformat()
             results_ds.to_netcdf(output_path)
-            logger.info(f"  ✅ 指数计算结果已保存至: {output_path.relative_to(config.PROJECT_ROOT)}")
+            logger.info(f"  ✅ 指数计算结果已保存至: {output_path.relative_to(config.LOG_BASE_PATH)}")
 
         except FileNotFoundError as e:
             logger.warning(f"  - 缺少数据，无法计算此事件: {e}")

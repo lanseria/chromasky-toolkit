@@ -12,6 +12,10 @@ from dotenv import load_dotenv
 # .resolve() -> 获取绝对路径
 # .parent.parent -> 从 src/chromasky_toolkit/ 向上跳两级到项目根目录
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+# --- 新增: 定义一个用于日志输出的顶级项目路径 ---
+# PROJECT_ROOT 指向 /app/src, 而这个指向 /app
+LOG_BASE_PATH: Path = PROJECT_ROOT.parent
+
 
 # --- 2. 加载环境变量 ---
 dotenv_path = PROJECT_ROOT / '.env'

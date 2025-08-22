@@ -40,7 +40,7 @@ def run_input_visualization():
             file_path = data_dir / f"{var_name}_{time_str}.nc"
             
             if not file_path.exists():
-                logger.warning(f"  - 输入文件未找到，跳过: {file_path.relative_to(config.PROJECT_ROOT)}")
+                logger.warning(f"  - 输入文件未找到，跳过: {file_path.relative_to(config.LOG_BASE_PATH)}")
                 continue
 
             try:
@@ -67,7 +67,7 @@ def run_input_visualization():
                     title=map_title,
                     output_path=output_path,
                 )
-                logger.info(f"    ✅ 地图已保存至: {output_path.relative_to(config.PROJECT_ROOT)}")
+                logger.info(f"    ✅ 地图已保存至: {output_path.relative_to(config.LOG_BASE_PATH)}")
 
             except Exception as e:
                 logger.error(f"    ❌ 在为 {file_path.name} 绘图时发生错误: {e}", exc_info=True)
