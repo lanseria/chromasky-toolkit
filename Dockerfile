@@ -8,6 +8,8 @@ ENV PYTHONUNBUFFERED=1
 # --- 关键修复 1: 为 Cartopy 指定一个明确的数据目录 ---
 ENV CARTOPY_DATA_DIR=/app/cartopy_data
 
+ENV TZ=Asia/Shanghai
+
 # 设置容器内的工作目录
 WORKDIR /app
 
@@ -29,6 +31,7 @@ RUN addgroup --system app && adduser --system --group --home /app app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libgeos-dev \
+    tzdata \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
