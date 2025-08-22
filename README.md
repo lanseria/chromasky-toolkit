@@ -191,6 +191,7 @@ chromasky-toolkit/
 ```
 
 ```
+docker build --no-cache -t chromasky-toolkit .
 docker build -t chromasky-toolkit .
 
 docker run -d \
