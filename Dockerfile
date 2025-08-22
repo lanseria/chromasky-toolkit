@@ -47,6 +47,7 @@ RUN pip install --no-cache-dir -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/
 # 复制应用程序的源代码和工具脚本
 COPY src/ src/
 COPY tools/ tools/
+COPY .env src/.env
 
 RUN mkdir -p /app/data /app/outputs /app/map_data /app/fonts /app/cartopy_data
 

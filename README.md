@@ -209,7 +209,7 @@ docker volume create chromasky-outputs
 docker run -d --name chromasky-app -p 8000:8000 \
   -v chromasky-data:/app/data \
   -v chromasky-outputs:/app/outputs \
-  --env-file .env \
+  -v "$(pwd)/.env:/app/.env" \
   chromasky-toolkit
 
 ```
