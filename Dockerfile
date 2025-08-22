@@ -40,7 +40,7 @@ RUN addgroup --system app && adduser --system --group --home /app app
 RUN mkdir -p /app/config/matplotlib /app/data/cartopy_data /app/map_data /app/fonts /app/outputs
 
 # 安装 Python 依赖
-COPY pyproject.toml .
+COPY . .
 RUN pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple --upgrade pip wheel && \
     pip install --no-cache-dir -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple .
 
@@ -50,16 +50,11 @@ RUN python -c "import cartopy.io.shapereader as shpreader; \
     shpreader.natural_earth(resolution='50m', category='physical', name='ocean'); \
     shpreader.natural_earth(resolution='50m', category='physical', name='coastline');"
 
-# 复制应用程序的源代码和工具脚本
-COPY src/ src/
-COPY tools/ tools/
-COPY .env src/.env
-
 # 在构建镜像时就运行地图和字体数据下载脚本
 RUN python tools/setup_map_data.py
 
 # 将整个工作目录的所有权交给刚刚创建的 app 用户
-RUN chown -R app:app /app/data /app/outputs /app/map_data /app/fonts /app/cartopy_data
+RUN chown -R app:app /app/config /app/data /app/outputs /app/map_data /app/fonts
 
 # 切换到非 root 用户
 USER app
