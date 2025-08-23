@@ -1,0 +1,16 @@
+services:
+  app:
+    image: chromasky-toolkit
+    container_name: chromasky-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - chromasky-data:/app/data
+      - chromasky-outputs:/app/outputs
+    env_file:
+      - .env
+
+volumes:
+  chromasky-data:
+  chromasky-outputs:

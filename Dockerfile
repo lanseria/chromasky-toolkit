@@ -1,15 +1,4 @@
-# 使用官方的 Python 3.12 slim 版本作为基础镜像
-FROM m.daocloud.io/docker.io/library/python:3.12
-
-# 设置环境变量
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    TZ=Asia/Shanghai \
-    HOME=/app \
-    PYTHONPATH=/app/src \
-    # --- 核心修复：为 Matplotlib 和 Cartopy 指定统一、可写的配置/数据目录 ---
-    MPLCONFIGDIR=/app/config/matplotlib \
-    CARTOPY_DATA_DIR=/app/data/cartopy_data
+FROM m.daocloud.io/ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 # 设置容器内的工作目录
 WORKDIR /app
@@ -31,18 +20,37 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libgeos-dev \
     tzdata \
+    build-essential \
+    libeccodes-dev \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# 这解决了 /nonexistent 的问题
-RUN addgroup --system app && adduser --system --group --home /app app
+# 设置环境变量
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    UV_LINK_MODE=copy \
+# Enable bytecode compilation
+    UV_COMPILE_BYTECODE=1 \
+# Copy from the cache instead of linking since it's a mounted volume
+    PYTHONUNBUFFERED=1 \
+    HOME=/app \
+    PYTHONPATH=/app/src \
+    MPLCONFIGDIR=/app/config/matplotlib \
+    CARTOPY_DATA_DIR=/app/data/cartopy_data \
+# Ensure installed tools can be executed out of the box
+    UV_TOOL_BIN_DIR=/usr/local/bin
 
-RUN mkdir -p /app/config/matplotlib /app/data/cartopy_data /app/map_data /app/fonts /app/outputs
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project --no-dev
 
 # 安装 Python 依赖
-COPY . .
-RUN pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple --upgrade pip wheel && \
-    pip install --no-cache-dir -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple .
+COPY . /app
+RUN mkdir -p /app/config/matplotlib /app/data/cartopy_data /app/map_data /app/fonts /app/outputs
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-dev
+
+ENV PATH="/app/.venv/bin:$PATH"
 
 # 预下载 Cartopy 数据到我们指定的新目录
 RUN python -c "import cartopy.io.shapereader as shpreader; \
@@ -52,14 +60,6 @@ RUN python -c "import cartopy.io.shapereader as shpreader; \
 
 # 在构建镜像时就运行地图和字体数据下载脚本
 RUN python tools/setup_map_data.py
-
-# 将整个工作目录的所有权交给刚刚创建的 app 用户
-RUN chown -R app:app /app/config /app/data /app/outputs /app/map_data /app/fonts
-
-# 切换到非 root 用户
-USER app
-
-ENV PYTHONPATH=/app/src
 
 # 声明容器运行时监听的端口
 EXPOSE 8000

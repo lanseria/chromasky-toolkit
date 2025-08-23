@@ -74,11 +74,21 @@
     docker run -d \
       --name chromasky-app \
       -p 8000:8000 \
-      -v "$(pwd)/.env:/app/.env"
+      -v "$(pwd)/.env:/app/.env" \
       -v chromasky-data:/app/data \
       -v chromasky-outputs:/app/outputs \
       --restart always \
       chromasky-toolkit
+    
+    docker run -d \
+      --name chromasky-app \
+      -p 8000:8000 \
+      -v chromasky-data:/app/data \
+      -v chromasky-outputs:/app/outputs \
+      --restart always \
+      chromasky-toolkit
+
+    docker compose up -d
     ```
 
 4.  **访问应用**
