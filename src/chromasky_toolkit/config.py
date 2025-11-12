@@ -48,10 +48,10 @@ DISPLAY_AREA: Dict[str, float] = {
 
 # 计算范围 (用户定义的核心关注区域)
 CALCULATION_AREA: Dict[str, float] = {
-    "north": 42.00,
+    "north": 54.00,
     "south": 16.00,
-    "west": 104.00,
-    "east": 130.00,
+    "west": 73.00,
+    "east": 136.00,
 }
 
 # 下载范围 (在展示范围基础上，向四周各扩展15度作为缓冲区)
