@@ -2,7 +2,8 @@
 
 import os
 from pathlib import Path
-from typing import Dict, List, Literal # <-- 确保导入 Literal
+from typing import Dict, List, Literal
+from datetime import datetime
 from dotenv import load_dotenv
 
 
@@ -69,12 +70,38 @@ DOWNLOAD_AREA["south"] = max(DOWNLOAD_AREA["south"], -90.0)
 # 本地时区
 LOCAL_TZ: str = "Asia/Shanghai"
 
-# --- 5. 时间配置 ---
-# 关注的日出/日落时间段 (本地时间, 24小时制)
-SUNRISE_EVENT_TIMES: List[str] = ["04:00", "05:00", "06:00", "07:00", "08:00"]
-# SUNRISE_EVENT_TIMES: List[str] = ["05:00"]
-SUNSET_EVENT_TIMES: List[str] = ["18:00", "19:00", "20:00", "21:00"]
-# SUNSET_EVENT_TIMES: List[str] = ["19:00"]
+# --- 5. 时间配置 (根据季节动态调整) ---
+
+# 5.1 为不同季节预设时间列表
+# 北半球季节定义: 冬季 (12, 1, 2月), 夏季 (6, 7, 8月), 春秋季 (其他月份)
+_SUNRISE_TIMES_WINTER: List[str] = ["06:00", "07:00", "08:00", "09:00"]
+_SUNSET_TIMES_WINTER:  List[str] = ["17:00", "18:00", "19:00", "20:00"]
+
+_SUNRISE_TIMES_SUMMER: List[str] = ["04:00", "05:00", "06:00", "07:00"]
+_SUNSET_TIMES_SUMMER:  List[str] = ["19:00", "20:00", "21:00", "22:00"]
+
+_SUNRISE_TIMES_EQUINOX: List[str] = ["05:00", "06:00", "07:00", "08:00"]
+_SUNSET_TIMES_EQUINOX:  List[str] = ["18:00", "19:00", "20:00", "21:00"]
+
+
+# 5.2 根据当前月份自动选择时间配置
+current_month = datetime.now().month
+
+if current_month in [12, 1, 2]:
+    season = "冬季"
+    SUNRISE_EVENT_TIMES: List[str] = _SUNRISE_TIMES_WINTER
+    SUNSET_EVENT_TIMES: List[str] = _SUNSET_TIMES_WINTER
+elif current_month in [6, 7, 8]:
+    season = "夏季"
+    SUNRISE_EVENT_TIMES: List[str] = _SUNRISE_TIMES_SUMMER
+    SUNSET_EVENT_TIMES: List[str] = _SUNSET_TIMES_SUMMER
+else:
+    season = "春秋季"
+    SUNRISE_EVENT_TIMES: List[str] = _SUNRISE_TIMES_EQUINOX
+    SUNSET_EVENT_TIMES: List[str] = _SUNSET_TIMES_EQUINOX
+
+# 在加载配置时打印信息，方便调试
+print(f"✅ Config: 当前为 {season}, 已自动选择对应的日出/日落时间段。")
 
 # --- 未来事件处理意图配置 ---
 # 定义您想处理的未来事件列表。
