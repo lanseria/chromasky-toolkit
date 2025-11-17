@@ -87,11 +87,11 @@ _SUNSET_TIMES_EQUINOX:  List[str] = ["18:00", "19:00", "20:00", "21:00"]
 # 5.2 根据当前月份自动选择时间配置
 current_month = datetime.now().month
 
-if current_month in [12, 1, 2]:
+if current_month in [11, 12, 1, 2]:
     season = "冬季"
     SUNRISE_EVENT_TIMES: List[str] = _SUNRISE_TIMES_WINTER
     SUNSET_EVENT_TIMES: List[str] = _SUNSET_TIMES_WINTER
-elif current_month in [6, 7, 8]:
+elif current_month in [5, 6, 7, 8]:
     season = "夏季"
     SUNRISE_EVENT_TIMES: List[str] = _SUNRISE_TIMES_SUMMER
     SUNSET_EVENT_TIMES: List[str] = _SUNSET_TIMES_SUMMER
