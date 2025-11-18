@@ -1,5 +1,8 @@
 services:
   app:
+    build: .
+    # 添加这个策略
+    pull_policy: never
     image: chromasky-toolkit
     container_name: chromasky-app
     restart: unless-stopped
