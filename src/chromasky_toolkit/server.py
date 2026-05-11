@@ -20,24 +20,38 @@ logger = logging.getLogger("ChromaSkyServer")
 # --- 定时任务逻辑 ---
 scheduler = AsyncIOScheduler()
 
-def run_scheduled_job():
-    """
-    这是定时任务和手动触发要执行的函数。
-    它会调用项目的核心工作流。
-    """
-    logger.info("====== [Job Runner] 开始执行完整工作流 ======")
+# 0点：生成今日朝霞 + 今日晚霞
+MORNING_EVENTS = ['today_sunrise', 'today_sunset']
+# 12点：生成今日晚霞(最新版) + 明日朝霞
+NOON_EVENTS = ['today_sunset', 'tomorrow_sunrise']
+
+
+def _run_job(event_intentions: list[str], label: str):
+    """执行指定事件意图的工作流。"""
+    logger.info(f"====== [Job Runner] {label} 开始执行 ======")
     try:
-        run_full_workflow()
-        logger.info("====== [Job Runner] 完整工作流执行成功 ======")
+        run_full_workflow(event_intentions=event_intentions)
+        logger.info(f"====== [Job Runner] {label} 执行成功 ======")
     except Exception as e:
-        logger.error(f"====== [Job Runner] 完整工作流执行失败: {e} ======", exc_info=True)
+        logger.error(f"====== [Job Runner] {label} 执行失败: {e} ======", exc_info=True)
 
 # --- FastAPI 应用生命周期管理 ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 应用启动时执行
     logger.info("服务器启动，初始化定时任务...")
-    scheduler.add_job(run_scheduled_job, 'cron', hour=1, minute=30, id="daily_chromasky_job")
+    # 0:00 生成今日朝霞 + 今日晚霞
+    scheduler.add_job(
+        _run_job, 'cron', hour=0, minute=0,
+        args=[MORNING_EVENTS, "0点任务(朝霞+晚霞)"],
+        id="morning_chromasky_job"
+    )
+    # 12:00 生成今日晚霞(最新版) + 明日朝霞
+    scheduler.add_job(
+        _run_job, 'cron', hour=12, minute=0,
+        args=[NOON_EVENTS, "12点任务(晚霞最新版+明日朝霞)"],
+        id="noon_chromasky_job"
+    )
     scheduler.start()
     yield
     # 应用关闭时执行
@@ -61,7 +75,8 @@ async def trigger_job_endpoint(background_tasks: BackgroundTasks):
     异步触发一次完整的数据处理流程。
     """
     logger.info("====== [API] 接收到手动触发任务请求 ======")
-    background_tasks.add_task(run_scheduled_job)
+    # 手动触发使用 0 点任务配置（朝霞 + 晚霞）
+    background_tasks.add_task(_run_job, MORNING_EVENTS, "手动触发")
     return {"message": "任务已在后台开始运行。请稍后刷新页面查看结果。"}
 
 

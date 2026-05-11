@@ -150,6 +150,26 @@ def setup_map_data():
     logger.info("===== 地图数据设置完成！ =====")
 
 
+def setup_output_dirs():
+    """
+    创建运行时所需的输出目录结构。
+    """
+    dirs = [
+        config.OUTPUTS_DIR,
+        config.MAP_OUTPUTS_DIR,
+        config.MAP_WEBP_OUTPUTS_DIR,
+        config.FIGURE_OUTPUTS_DIR,
+        config.CALCULATION_OUTPUTS_DIR,
+        config.DATA_DIR,
+        config.PROCESSED_DATA_DIR,
+        config.RAW_DATA_DIR,
+    ]
+    for d in dirs:
+        d.mkdir(parents=True, exist_ok=True)
+    logger.info(f"✅ 运行时目录已就绪 (共 {len(dirs)} 个)")
+
+
 if __name__ == "__main__":
+    setup_output_dirs()
     setup_map_data()
     setup_font_data()
