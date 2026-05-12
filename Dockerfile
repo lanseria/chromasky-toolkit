@@ -52,8 +52,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 ENV PATH="/app/.venv/bin:$PATH"
 
-# 预下载 Cartopy 数据到我们指定的新目录
-RUN python -c "import cartopy.io.shapereader as shpreader; \
+# 启用 BuildKit 缓存挂载，预下载 Cartopy 数据到我们指定的新目录
+RUN --mount=type=cache,target=/root/.local/share/cartopy/ \
+    python -c "import cartopy.io.shapereader as shpreader; \
     shpreader.natural_earth(resolution='50m', category='physical', name='land'); \
     shpreader.natural_earth(resolution='50m', category='physical', name='ocean'); \
     shpreader.natural_earth(resolution='50m', category='physical', name='coastline');"
