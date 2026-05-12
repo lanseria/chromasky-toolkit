@@ -46,7 +46,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # 安装 Python 依赖
 COPY . /app
-RUN mkdir -p /app/config/matplotlib /app/data/cartopy_data /app/map_data /app/fonts /app/outputs
+RUN mkdir -p /app/config/matplotlib /app/data/cartopy_data /app/map_data /app/fonts /app/outputs /app/chroma-sky-tiles
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev
 
@@ -68,6 +68,7 @@ EXPOSE 8000
 # 这明确表示这些目录用于存储持久化数据
 VOLUME /app/data
 VOLUME /app/outputs
+VOLUME /app/chroma-sky-tiles
 
 # 容器启动时运行的命令
 ENTRYPOINT ["uvicorn", "chromasky_toolkit.server:app", "--host", "0.0.0.0", "--port", "8000"]

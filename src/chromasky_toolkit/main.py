@@ -38,6 +38,10 @@ def run_full_workflow(event_intentions: List[str] | None = None):
     from . import image_converter
     image_converter.run_conversion()
 
+    logger.info("=" * 25 + " 5. XYZ 瓦片生成 " + "=" * 25)
+    from .tile_generator import run_tile_generation
+    run_tile_generation()
+
 
 def main():
     """
@@ -75,6 +79,11 @@ def main():
         action='store_true',
         help="将 `outputs/maps` 中的 PNG 图片转换为 WebP 格式，并存入 `outputs/maps_webp`。"
     )
+    parser.add_argument(
+        '--generate-tiles',
+        action='store_true',
+        help="从已有的计算结果重新生成 XYZ 瓦片（不重新绘制地图）。"
+    )
 
     args = parser.parse_args()
     
@@ -83,14 +92,15 @@ def main():
     run_calculate = args.calculate_only
     run_draw = args.draw_only
     run_convert = args.convert_webp # 新增
+    run_tiles = args.generate_tiles
 
     # 如果没有指定任何 --xxx-only 或 --visualize-inputs/--convert-webp 参数，则执行完整流程
-    if not any([run_acquire, run_visualize, run_calculate, run_draw, run_convert]):
+    if not any([run_acquire, run_visualize, run_calculate, run_draw, run_convert, run_tiles]):
         logger.info("未指定特定步骤，将执行完整流程: 获取 -> 计算 -> 绘制")
         run_acquire, run_calculate, run_draw = True, True, True
     else:
         # 如果指定了 --visualize-inputs 或 --convert-webp，则它们是独立操作
-        if run_visualize or run_convert:
+        if run_visualize or run_convert or run_tiles:
             run_acquire, run_calculate, run_draw = False, False, False
 
     logger.info("=" * 60)
@@ -138,6 +148,15 @@ def main():
             image_converter.run_conversion()
         except Exception as e:
             logger.error(f"❌ 在图片格式转换阶段发生严重错误: {e}", exc_info=True)
+
+    # --- 新增的瓦片生成流程 ---
+    if run_tiles:
+        logger.info("\n" + "=" * 25 + " XYZ 瓦片生成 " + "=" * 25)
+        try:
+            from .tile_generator import run_tile_generation
+            run_tile_generation()
+        except Exception as e:
+            logger.error(f"❌ 在瓦片生成阶段发生严重错误: {e}", exc_info=True)
 
 
     logger.info("\n" + "=" * 60)

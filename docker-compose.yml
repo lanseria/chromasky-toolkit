@@ -11,6 +11,7 @@ services:
     volumes:
       - chromasky-data:/app/data
       - chromasky-outputs:/app/outputs
+      - ${TILES_HOST_PATH:-./chroma-sky-tiles}:/app/chroma-sky-tiles
     env_file:
       - .env
 

@@ -5,12 +5,6 @@
   <p><strong>一个用于获取、处理并生成火烧云（晚霞/朝霞）指数地图的 Python 工具包。</strong></p>
   
   <p>
-    <a href="https://chroma-sky.sharee.top/" target="_blank">
-      <img src="https://img.shields.io/badge/Live_Demo-访问在线地图-brightgreen?style=for-the-badge&logo=icloud" alt="Live Demo">
-    </a>
-  </p>
-  
-  <p>
     <img src="https://img.shields.io/badge/python-3.12%2B-blue?style=flat-square" alt="Python Version">
     <img src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square" alt="License">
   </p>
@@ -18,11 +12,6 @@
 
 本项目旨在自动化预测绚丽日出日落的完整流程：从下载最新的气象预报数据，到计算一个独特的“火烧云指数”，再到将结果可视化为高质量的地图。它非常适合气象爱好者、摄影师以及任何热爱美丽天空的人。
 
-## 🗺️ 效果示例
-
-下图是由 ChromaSky Toolkit 自动生成的**综合火烧云指数**地图。高亮区域代表在特定时间段内最有可能出现壮丽晚霞的地区。
-
-![Sample Output Map](https://i.imgur.com/PNuK6b1.jpeg "示例：火烧云指数预报地图")
 
 ## 🚀 项目特性
 
@@ -31,6 +20,7 @@
 *   🎨 **高质量地图**: 使用 Matplotlib 和 Cartopy 创建视觉效果出色的暗色主题地图，包含地理边界和城市标注。
 *   🐳 **容器化部署**: 提供优化的 `Dockerfile`，实现一键部署和稳定运行。
 *   🌐 **Web 服务**: 内置 FastAPI 服务器，提供 Web 界面展示最新地图，并支持手动触发更新。
+*   🗂️ **XYZ 瓦片生成**: 自动将指数叠加层切割为标准 XYZ 瓦片（Web Mercator），可直接用于 MapLibre / Mapbox GL JS 等前端地图库。
 *   ⚙️ **高可配置性**: 通过中央配置文件，轻松调整地理区域、目标时间等参数。
 *   ⚡ **并行计算**: 利用多核 CPU 显著加速指数计算过程。
 
@@ -56,6 +46,8 @@
     ```env
     # .env
     CDS_API_KEY="UID:API_KEY"
+    # (可选) XYZ 瓦片输出到宿主机的路径，默认为 ./chroma-sky-tiles
+    # TILES_HOST_PATH=/data/tiles
     ```
     请将 `UID:API_KEY` 替换为您自己的真实凭据。
 
@@ -172,11 +164,21 @@ uvicorn src.chromasky_toolkit.server:app --reload
     python -m src.chromasky_toolkit.main --visualize-inputs
     ```
 
+*   **从已有数据重新生成 XYZ 瓦片:**
+    ```bash
+    python -m src.chromasky_toolkit.main --generate-tiles
+    ```
+
+*   **PNG 转 WebP 格式:**
+    ```bash
+    python -m src.chromasky_toolkit.main --convert-webp
+    ```
+
 所有输出将保存在 `outputs/` 目录中。
 
 ## 🔬 工作原理
 
-整个流程分为三个主要阶段：
+整个流程分为五个主要阶段：
 
 1.  **数据获取**:
     *   脚本首先确定 GFS（云量）和 CAMS（气溶胶）当前可用的最新预报周期。
@@ -191,11 +193,20 @@ uvicorn src.chromasky_toolkit.server:app --reload
     *   为每个时间点生成单独的预报图，并生成一张**综合地图**，显示整个事件时段内的最佳潜力。
     *   使用高斯平滑和插值技术来创建平滑且美观的色彩等值线。
 
+4.  **图片格式转换**:
+    *   将生成的 PNG 地图批量转换为 WebP 格式，优化 Web 加载速度。
+
+5.  **XYZ 瓦片生成**:
+    *   将综合指数叠加层切割为 XYZ 瓦片（Web Mercator 投影，256×256 RGBA PNG）。
+    *   瓦片保留透明通道，可直接叠加在 MapLibre / Mapbox 等地图引擎上。
+    *   详细的瓦片路径规则和接入方式见 [docs/tiles-api.md](docs/tiles-api.md)。
+
 ## 📂 项目结构
 
 ```
 chromasky-toolkit/
 ├── .env                  # (用户创建) 存放 API 密钥
+├── chroma-sky-tiles/     # (运行时生成) XYZ 瓦片输出目录
 ├── data/                 # (运行时生成) 下载和处理后的数据
 ├── docs/                 # 文档和资源 (如 Logo)
 ├── fonts/                # (运行时生成) 下载的字体
@@ -206,6 +217,7 @@ chromasky-toolkit/
 │       ├── main.py         # 命令行入口
 │       ├── server.py       # Web 服务
 │       ├── config.py       # 中央配置文件
+│       ├── tile_generator.py # XYZ 瓦片生成
 │       └── ...
 ├── templates/            # HTML 模板
 ├── tools/

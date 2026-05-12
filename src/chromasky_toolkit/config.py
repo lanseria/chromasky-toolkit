@@ -160,3 +160,9 @@ CAMS_VARS_MAP: Dict[str, str] = {
 # --- 10. 计算参数配置 ---
 # 定义在天文事件（日出/日落）前后多长时间的窗口内进行计算
 EVENT_WINDOW_MINUTES: int = 30
+
+# --- 11. XYZ 瓦片配置 ---
+TILE_OUTPUT_DIR: Path = PROJECT_ROOT.parent / "chroma-sky-tiles"
+TILE_ZOOM_MIN: int = 3
+TILE_ZOOM_MAX: int = 8
+TILE_SIZE: int = 256
