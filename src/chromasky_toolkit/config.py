@@ -163,6 +163,7 @@ EVENT_WINDOW_MINUTES: int = 30
 
 # --- 11. XYZ 瓦片配置 ---
 TILE_OUTPUT_DIR: Path = PROJECT_ROOT.parent / "chroma-sky-tiles"
+TILE_MANIFEST_PATH: Path = TILE_OUTPUT_DIR / "tiles_manifest.json"
 TILE_ZOOM_MIN: int = 3
 TILE_ZOOM_MAX: int = 8
 TILE_SIZE: int = 256

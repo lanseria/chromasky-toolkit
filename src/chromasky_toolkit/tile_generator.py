@@ -1,6 +1,8 @@
 # src/chromasky_toolkit/tile_generator.py
 
+import json
 import logging
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -233,6 +235,10 @@ def generate_tiles_for_event(
         logger.info(f"  Zoom {z}: 已生成 {z_count} 个瓦片")
 
     logger.info(f"事件 '{group_key}' 瓦片生成完毕，共 {total_count} 个")
+
+    # 更新瓦片资源清单
+    update_tiles_manifest(date_str.replace('-', ''), event_type)
+
     return total_count
 
 
@@ -273,3 +279,44 @@ def run_tile_generation():
             logger.warning(f"组 '{group_key}': 没有可用的计算数据")
 
     logger.info("====== XYZ 瓦片生成流程执行完毕！ ======")
+
+
+def update_tiles_manifest(date: str, event: str) -> None:
+    """更新瓦片资源清单文件。
+
+    Args:
+        date: 日期字符串，格式 YYYYMMDD
+        event: 事件类型，sunrise 或 sunset
+    """
+    manifest_path = config.TILE_MANIFEST_PATH
+    now = datetime.now().astimezone().isoformat()
+
+    # 读取已有清单
+    if manifest_path.exists():
+        with open(manifest_path, encoding='utf-8') as f:
+            manifest = json.load(f)
+    else:
+        manifest = {"lastUpdated": now, "resources": []}
+
+    # 查找并更新或追加
+    for item in manifest["resources"]:
+        if item["date"] == date and item["event"] == event:
+            item["generatedAt"] = now
+            break
+    else:
+        manifest["resources"].append({
+            "date": date,
+            "event": event,
+            "generatedAt": now,
+        })
+
+    manifest["lastUpdated"] = now
+
+    # 按日期+事件排序
+    manifest["resources"].sort(key=lambda r: (r["date"], r["event"]))
+
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(manifest_path, 'w', encoding='utf-8') as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    logger.info(f"瓦片清单已更新: {date} {event}")
