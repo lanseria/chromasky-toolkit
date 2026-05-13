@@ -161,6 +161,10 @@ CAMS_VARS_MAP: Dict[str, str] = {
 # 定义在天文事件（日出/日落）前后多长时间的窗口内进行计算
 EVENT_WINDOW_MINUTES: int = 30
 
+# 并行工作进程数，默认使用一半 CPU 核心（生产环境友好）
+# 开发环境可在 .env 中设为 cpu_count() 的值以顶满性能
+NUM_WORKERS: int = int(os.getenv("NUM_WORKERS", max(1, (os.cpu_count() or 1) // 2)))
+
 # --- 11. XYZ 瓦片配置 ---
 TILE_OUTPUT_DIR: Path = PROJECT_ROOT.parent / "chroma-sky-tiles"
 TILE_MANIFEST_PATH: Path = TILE_OUTPUT_DIR / "tiles_manifest.json"

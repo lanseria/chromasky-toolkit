@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Tuple, Dict, List
 import xarray as xr
 from tqdm.auto import tqdm
-import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 
@@ -240,7 +239,7 @@ class GlowIndexCalculator:
             logging.warning("活动区域为空，无需计算。")
             return results_ds
         
-        num_workers = os.cpu_count()
+        num_workers = config.NUM_WORKERS
         logging.info(f"将使用 {num_workers} 个工作进程进行并行计算。")
 
         task_function = partial(self._calculate_for_single_index, utc_time=utc_time, factors=factors)

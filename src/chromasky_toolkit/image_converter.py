@@ -5,7 +5,6 @@ from pathlib import Path
 from PIL import Image
 from tqdm.auto import tqdm
 from concurrent.futures import ProcessPoolExecutor, as_completed
-import os
 
 from . import config
 
@@ -72,7 +71,7 @@ def run_conversion():
     logger.info(f"转换参数: Quality={WEBP_QUALITY}, Effort(Method)={WEBP_METHOD}")
     
     # 使用并行处理加速转换
-    num_workers = os.cpu_count()
+    num_workers = config.NUM_WORKERS
     success_count = 0
     fail_count = 0
 
