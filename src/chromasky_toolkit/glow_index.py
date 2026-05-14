@@ -12,6 +12,8 @@ from functools import partial
 
 from .astronomy import AstronomyService
 
+from . import config
+
 class GlowIndexCalculator:
     """
     根据多种气象因子，使用混合评分模型计算火烧云指数。
