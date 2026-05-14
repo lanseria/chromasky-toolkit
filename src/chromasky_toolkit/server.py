@@ -2,15 +2,21 @@
 
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, Request, BackgroundTasks
+from fastapi import FastAPI, Request, BackgroundTasks, Query, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+import xarray as xr
 
 from . import config
+from .astronomy import AstronomyService
+from .glow_index import GlowIndexCalculator
 from .main import run_full_workflow
 
 # --- 日志配置 ---
@@ -162,3 +168,129 @@ async def read_archive(request: Request):
         "archive.html",
         {"request": request, "image_groups": image_groups}
     )
+
+
+# --- 火烧云指数查询 API ---
+@app.get("/api/glow-index", response_class=JSONResponse)
+async def get_glow_index(
+    lat: float = Query(..., ge=-90, le=90, description="纬度"),
+    lon: float = Query(..., ge=-180, le=180, description="经度"),
+    event: Literal["sunrise", "sunset"] = Query(..., description="日出或日落"),
+    date: str = Query(..., description="日期，格式 YYYY-MM-DD"),
+):
+    """
+    查询指定地点和日期的火烧云指数。
+    根据经纬度计算真实的日出/日落时间，匹配最近的可用数据时间点。
+    """
+    # 解析日期
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="日期格式错误，应为 YYYY-MM-DD")
+
+    # 计算该点的真实日出/日落时间
+    astro = AstronomyService()
+    event_utc = astro._calculate_single_event_time(lat, lon, target_date, event)
+    if event_utc is None:
+        raise HTTPException(status_code=400, detail=f"该地点在 {date} 无{'日出' if event == 'sunrise' else '日落'}事件")
+
+    date_str = target_date.strftime("%Y-%m-%d")
+
+    # 在数据目录中查找离真实事件时间最近的数据文件
+    # 数据文件名是北京时间(HHMM)，需将 UTC 转为本地时间后比较
+    local_tz = ZoneInfo(config.LOCAL_TZ)
+    event_local = event_utc.astimezone(local_tz)
+    nearest_time = _find_nearest_data_time(date_str, event_local)
+    if nearest_time is None:
+        raise HTTPException(status_code=404, detail=f"未找到 {date_str} 的数据，请确认该日期已有数据下载")
+
+    # 按优先级获取指数：预计算结果 > 原始数据实时计算
+    scores = _load_precalculated_point(date_str, nearest_time, lat, lon)
+    if scores is None:
+        scores = _calculate_raw_point(date_str, nearest_time, lat, lon)
+    if scores is None:
+        raise HTTPException(status_code=404, detail=f"未找到 {date_str} 时间点 {nearest_time} 的数据")
+
+    return {
+        "lat": lat,
+        "lon": lon,
+        "date": date_str,
+        "event": event,
+        "event_time": event_local.strftime("%H:%M"),
+        "data_time": f"{nearest_time[:2]}:{nearest_time[2:]}",
+        **{k: round(v, 4) for k, v in scores.items()},
+    }
+
+
+def _find_nearest_data_time(date_str: str, event_local: datetime) -> str | None:
+    """
+    在预计算结果目录和原始数据目录中，查找离事件本地时间最近的数据时间点。
+    数据文件名为北京时间 HHMM，event_local 也应为本地时间。
+    """
+    event_minutes = event_local.hour * 60 + event_local.minute
+    candidates: set[str] = set()
+
+    # 从预计算结果目录收集
+    calc_dir = config.CALCULATION_OUTPUTS_DIR / date_str
+    if calc_dir.exists():
+        for f in calc_dir.glob("glow_index_result_*.nc"):
+            candidates.add(f.stem.split("_")[-1])
+
+    # 从原始数据目录收集
+    data_dir = config.PROCESSED_DATA_DIR / "future" / date_str
+    if data_dir.exists():
+        for f in data_dir.glob("hcc_*.nc"):
+            candidates.add(f.stem.split("_")[1])
+
+    if not candidates:
+        return None
+
+    def time_diff(t: str) -> int:
+        hh, mm = int(t[:2]), int(t[2:])
+        return abs(hh * 60 + mm - event_minutes)
+
+    return min(candidates, key=time_diff)
+
+
+def _load_precalculated_point(date_str: str, time_str: str, lat: float, lon: float) -> dict | None:
+    """从预计算结果中提取指定点、指定时间的指数。"""
+    result_file = config.CALCULATION_OUTPUTS_DIR / date_str / f"glow_index_result_{time_str}.nc"
+    if not result_file.exists():
+        return None
+
+    try:
+        ds = xr.open_dataset(result_file)
+        scores = {}
+        for var in ["final_score"] + GlowIndexCalculator.ALL_FACTORS:
+            if var in ds:
+                scores[var] = float(ds[var].interp(latitude=lat, longitude=lon, method="linear").item())
+        ds.close()
+        return scores
+    except Exception as e:
+        logger.warning(f"读取预计算结果失败: {e}")
+        return None
+
+
+def _calculate_raw_point(date_str: str, time_str: str, lat: float, lon: float) -> dict | None:
+    """从原始气象数据实时计算指定点、指定时间的指数。"""
+    data_dir = config.PROCESSED_DATA_DIR / "future" / date_str
+    required_vars = ["hcc", "mcc", "lcc", "aod550"]
+
+    files = {var: data_dir / f"{var}_{time_str}.nc" for var in required_vars}
+    if not all(f.exists() for f in files.values()):
+        return None
+
+    try:
+        data_arrays = {var: xr.open_dataarray(fp).rename(var) for var, fp in files.items()}
+        weather_ds = xr.Dataset(data_arrays)
+        calculator = GlowIndexCalculator(weather_data=weather_ds)
+        utc_time = datetime.fromisoformat(weather_ds.hcc.attrs["original_utc_time"])
+
+        scores = calculator.calculate_for_point(lat, lon, utc_time)
+
+        for da in data_arrays.values():
+            da.close()
+        return scores
+    except Exception as e:
+        logger.warning(f"实时计算失败: {e}")
+        return None
