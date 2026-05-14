@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request, BackgroundTasks, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -66,6 +67,15 @@ async def lifespan(app: FastAPI):
 
 # --- 创建 FastAPI 应用实例 ---
 app = FastAPI(lifespan=lifespan)
+
+# --- CORS 中间件，允许所有域名跨域访问 ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --- 挂载静态文件目录 ---
 app.mount("/static", StaticFiles(directory=config.OUTPUTS_DIR), name="static")
