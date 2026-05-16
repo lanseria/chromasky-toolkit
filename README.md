@@ -176,6 +176,27 @@ uvicorn src.chromasky_toolkit.server:app --reload
 
 所有输出将保存在 `outputs/` 目录中。
 
+## 🧪 测试
+
+本项目使用 `pytest` 进行测试，`freezegun` 用于模拟时间。
+
+```bash
+# 运行全部测试
+uv run pytest tests/ -v
+
+# 只运行不需要 API Key 的测试
+uv run pytest tests/ -v -k "not CAMSAPICall"
+
+# 运行单个测试文件
+uv run pytest tests/test_midnight_download.py -v
+```
+
+设置 `CDS_API_KEY` 环境变量后可启用实际 CAMS API 调用测试：
+
+```bash
+CDS_API_KEY="UID:API_KEY" uv run pytest tests/ -v
+```
+
 ## 🔬 工作原理
 
 整个流程分为五个主要阶段：

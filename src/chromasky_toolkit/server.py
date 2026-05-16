@@ -47,16 +47,16 @@ def _run_job(event_intentions: list[str], label: str):
 async def lifespan(app: FastAPI):
     # 应用启动时执行
     logger.info("服务器启动，初始化定时任务...")
-    # 0:00 生成今日朝霞 + 今日晚霞
+    # 0:30 生成今日朝霞 + 今日晚霞
     scheduler.add_job(
-        _run_job, 'cron', hour=0, minute=0,
-        args=[MORNING_EVENTS, "0点任务(朝霞+晚霞)"],
+        _run_job, 'cron', hour=0, minute=30,
+        args=[MORNING_EVENTS, "0:30任务(朝霞+晚霞)"],
         id="morning_chromasky_job"
     )
-    # 12:00 生成今日晚霞(最新版) + 明日朝霞
+    # 12:30 生成今日晚霞(最新版) + 明日朝霞
     scheduler.add_job(
-        _run_job, 'cron', hour=12, minute=0,
-        args=[NOON_EVENTS, "12点任务(晚霞最新版+明日朝霞)"],
+        _run_job, 'cron', hour=12, minute=30,
+        args=[NOON_EVENTS, "12:30任务(晚霞最新版+明日朝霞)"],
         id="noon_chromasky_job"
     )
     scheduler.start()
