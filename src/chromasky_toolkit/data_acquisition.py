@@ -253,14 +253,16 @@ def acquire_cams_data(target_events: Dict[str, datetime]):
         logger.info(f"  - 将下载 {len(valid_leadtime_hours)} 个预报时效: {valid_leadtime_hours}")
         try:
             c = cdsapi.Client(url=config.CDS_API_URL, key=config.CDS_API_KEY, timeout=600, quiet=False)
-            area_bounds = [config.DOWNLOAD_AREA[k] for k in ["north", "west", "south", "east"]]
-            
+
+            # 不传 area 参数：ecmwf-datastores-client 会在指定 area 时自动追加 grid 参数，
+            # CAMS ADS API 不接受 area+grid+netcdf 的组合，会返回 400。
+            # 区域裁剪由下游 _process_cams_nc_to_nc 的 interp_like 重采样完成。
             c.retrieve(
                 config.CAMS_DATASET_NAME,
                 {
                     'date': run_date_str, 'time': run_hour_str, 'format': 'netcdf',
                     'variable': list(config.CAMS_VARS_MAP.values()),
-                    'leadtime_hour': valid_leadtime_hours, 'type': 'forecast', 'area': area_bounds
+                    'leadtime_hour': valid_leadtime_hours, 'type': 'forecast',
                 },
                 str(temp_dl_path)
             )
