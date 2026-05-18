@@ -24,7 +24,9 @@ def run_full_workflow(event_intentions: List[str] | None = None):
         config.FUTURE_TARGET_EVENT_INTENTIONS = event_intentions
     logger.info("=" * 25 + " 1. 数据获取 " + "=" * 25)
     from . import data_acquisition
-    data_acquisition.run_acquisition()
+    acquisition_success = data_acquisition.run_acquisition()
+    if not acquisition_success:
+        raise RuntimeError("数据获取阶段失败（CAMS 数据下载失败），工作流终止。")
 
     logger.info("=" * 25 + " 2. 指数计算 " + "=" * 25)
     from . import processing

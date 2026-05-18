@@ -223,11 +223,11 @@ def _process_cams_nc_to_nc(raw_nc_path: Path, target_events: Dict[str, datetime]
         logger.error(f"❌ [CAMS] 处理原始 NetCDF 文件 {raw_nc_path.name} 时出错: {e}", exc_info=True)
 
 
-def acquire_cams_data(target_events: Dict[str, datetime]):
-    """为指定的目标事件列表下载和处理CAMS AOD数据。"""
+def acquire_cams_data(target_events: Dict[str, datetime]) -> bool:
+    """为指定的目标事件列表下载和处理CAMS AOD数据。返回 True 表示成功，False 表示失败。"""
     run_info = _find_latest_available_cams_run()
     if not run_info:
-        return
+        return False
     run_date_str, run_hour_str = run_info
     base_run_time = datetime.strptime(f"{run_date_str} {run_hour_str}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
     
@@ -239,7 +239,7 @@ def acquire_cams_data(target_events: Dict[str, datetime]):
     
     if not valid_leadtime_hours:
         logger.warning("[CAMS] 没有需要下载的未来预报时效。")
-        return
+        return False
         
     raw_nc_dir = config.CAMS_AOD_DATA_DIR / f"{base_run_time.strftime('%Y%m%d')}_t{base_run_time.strftime('%H')}z"
     raw_nc_dir.mkdir(parents=True, exist_ok=True)
@@ -279,37 +279,42 @@ def acquire_cams_data(target_events: Dict[str, datetime]):
 
         except Exception as e:
             logger.error(f"❌ [CAMS] 下载原始数据时出错: {e}", exc_info=True)
-            return
+            return False
         finally:
             if temp_dl_path.exists(): temp_dl_path.unlink()
 
     # 此处调用处理函数，它将内部使用全局模板
     _process_cams_nc_to_nc(raw_nc_path, target_events, base_run_time)
+    return True
 
 # ======================================================================
 # --- 主执行函数 ---
 # ======================================================================
 
-def run_acquisition():
-    """执行完整的数据获取和处理流程。"""
+def run_acquisition() -> bool:
+    """执行完整的数据获取和处理流程。返回 True 表示成功，False 表示失败。"""
     logger.info("====== 开始执行数据获取与分析流程 ======")
-    
+
     # 1. 确定需要处理的所有事件
     target_events = expand_target_events()
     if not target_events:
         logger.warning("根据配置，没有找到任何需要处理的未来事件。流程终止。")
-        return
-        
+        return False
+
     logger.info(f"将要处理的事件共 {len(target_events)} 个:")
     for name, dt in target_events.items():
         logger.info(f"  - {name} (UTC: {dt.strftime('%Y-%m-%d %H:%M')})")
-    
+
     # 2. 获取 GFS 数据（此过程将创建 _gfs_grid_template）
     logger.info("="*25 + " GFS 数据处理 " + "="*25)
     acquire_gfs_data(target_events)
-    
+
     # 3. 获取 CAMS AOD 数据（此过程将使用 _gfs_grid_template）
     logger.info("="*25 + " CAMS AOD 数据处理 " + "="*25)
-    acquire_cams_data(target_events)
-    
+    cams_success = acquire_cams_data(target_events)
+    if not cams_success:
+        logger.error("❌ CAMS 数据获取失败，流程终止。等待下次重试。")
+        return False
+
     logger.info("====== 数据获取与分析流程执行完毕！ ======")
+    return True

@@ -2,7 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -32,15 +32,35 @@ MORNING_EVENTS = ['today_sunrise', 'today_sunset']
 # 12点：生成今日晚霞(最新版) + 明日朝霞
 NOON_EVENTS = ['today_sunset', 'tomorrow_sunrise']
 
+# 最大重试次数
+MAX_RETRY_COUNT = 3
+# 重试间隔（分钟）
+RETRY_INTERVAL_MINUTES = 30
 
-def _run_job(event_intentions: list[str], label: str):
-    """执行指定事件意图的工作流。"""
-    logger.info(f"====== [Job Runner] {label} 开始执行 ======")
+
+def _run_job(event_intentions: list[str], label: str, retry_count: int = 0):
+    """执行指定事件意图的工作流。失败时自动在30分钟后重试，最多重试3次。"""
+    retry_label = f"{label}" if retry_count == 0 else f"{label} (第 {retry_count} 次重试)"
+    logger.info(f"====== [Job Runner] {retry_label} 开始执行 ======")
     try:
         run_full_workflow(event_intentions=event_intentions)
-        logger.info(f"====== [Job Runner] {label} 执行成功 ======")
+        logger.info(f"====== [Job Runner] {retry_label} 执行成功 ======")
     except Exception as e:
-        logger.error(f"====== [Job Runner] {label} 执行失败: {e} ======", exc_info=True)
+        logger.error(f"====== [Job Runner] {retry_label} 执行失败: {e} ======", exc_info=True)
+        if retry_count < MAX_RETRY_COUNT:
+            next_retry = retry_count + 1
+            retry_time = datetime.now(timezone.utc) + timedelta(minutes=RETRY_INTERVAL_MINUTES)
+            logger.info(f"====== [Job Runner] 已安排在 {retry_time.isoformat()} 进行第 {next_retry} 次重试（共允许 {MAX_RETRY_COUNT} 次）======")
+            scheduler.add_job(
+                _run_job,
+                'date',
+                run_date=retry_time,
+                args=[event_intentions, label, next_retry],
+                id=f"retry_{label}_{next_retry}_{retry_time.strftime('%H%M')}",
+                replace_existing=False,
+            )
+        else:
+            logger.error(f"====== [Job Runner] {label} 已达到最大重试次数 ({MAX_RETRY_COUNT})，不再重试。======")
 
 # --- FastAPI 应用生命周期管理 ---
 @asynccontextmanager
