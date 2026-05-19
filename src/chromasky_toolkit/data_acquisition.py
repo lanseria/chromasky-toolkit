@@ -255,12 +255,12 @@ def acquire_cams_data(target_events: Dict[str, datetime]) -> bool:
             c = cdsapi.Client(url=config.CDS_API_URL, key=config.CDS_API_KEY, timeout=600, quiet=False)
 
             # 不传 area 参数：ecmwf-datastores-client 会在指定 area 时自动追加 grid 参数，
-            # CAMS ADS API 不接受 area+grid+netcdf 的组合，会返回 400。
+            # CAMS ADS API 不接受 area+grid+netcdf_zip 的组合，会返回 400。
             # 区域裁剪由下游 _process_cams_nc_to_nc 的 interp_like 重采样完成。
             c.retrieve(
                 config.CAMS_DATASET_NAME,
                 {
-                    'date': run_date_str, 'time': run_hour_str, 'format': 'netcdf',
+                    'date': run_date_str, 'time': run_hour_str, 'format': 'netcdf_zip',
                     'variable': list(config.CAMS_VARS_MAP.values()),
                     'leadtime_hour': valid_leadtime_hours, 'type': 'forecast',
                 },
@@ -279,6 +279,9 @@ def acquire_cams_data(target_events: Dict[str, datetime]) -> bool:
 
         except Exception as e:
             logger.error(f"❌ [CAMS] 下载原始数据时出错: {e}", exc_info=True)
+            logger.error(f"❌ [CAMS] 下载参数: date={run_date_str}, time={run_hour_str}, "
+                         f"variable={list(config.CAMS_VARS_MAP.values())}, "
+                         f"leadtime_hour={valid_leadtime_hours}, type=forecast, format=netcdf_zip")
             return False
         finally:
             if temp_dl_path.exists(): temp_dl_path.unlink()

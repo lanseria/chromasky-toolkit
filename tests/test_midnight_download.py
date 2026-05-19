@@ -6,6 +6,7 @@ leadtime_hour 计算均产生有效的 API 请求参数。
 
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -42,7 +43,7 @@ def _build_cams_request_params(run_date, run_hour, leadtime_hours) -> dict:
     return {
         "date": run_date,
         "time": run_hour,
-        "format": "netcdf",
+        "format": "netcdf_zip",
         "variable": list(config.CAMS_VARS_MAP.values()),
         "leadtime_hour": sorted([str(h) for h in leadtime_hours]),
         "type": "forecast",
@@ -157,7 +158,7 @@ class TestLeadtimeValidity:
         assert params["date"] == "2026-05-15"
         assert params["time"] == "12:00"
         assert params["type"] == "forecast"
-        assert params["format"] == "netcdf"
+        assert params["format"] == "netcdf_zip"
         assert "total_aerosol_optical_depth_550nm" in params["variable"]
         assert len(params["leadtime_hour"]) == 8
         # 所有 leadtime_hour 都是字符串
@@ -190,7 +191,7 @@ class TestCAMSAPICall:
     """实际调用 CAMS API 验证请求参数被接受"""
 
     @freeze_time(MIDNIGHT_UTC)
-    def test_cams_api_accepts_params(self, tmp_path):
+    def test_cams_api_accepts_params(self):
         import cdsapi
 
         events = expand_target_events()
@@ -211,7 +212,7 @@ class TestCAMSAPICall:
             quiet=False,
         )
 
-        output_path = tmp_path / "test_cams_download.nc"
+        output_path = Path(__file__).parent / "test_cams_download.nc"
 
         # retrieve 提交请求并等待结果，不应抛出 400 错误
         c.retrieve(
@@ -219,7 +220,7 @@ class TestCAMSAPICall:
             {
                 "date": run_date,
                 "time": run_hour,
-                "format": "netcdf",
+                "format": "netcdf_zip",
                 "variable": list(config.CAMS_VARS_MAP.values()),
                 "leadtime_hour": test_leadtime,
                 "type": "forecast",
@@ -227,6 +228,14 @@ class TestCAMSAPICall:
             },
             str(output_path),
         )
-
+        print({
+            "date": run_date,
+            "time": run_hour,
+            "format": "netcdf_zip",
+            "variable": list(config.CAMS_VARS_MAP.values()),
+            "leadtime_hour": test_leadtime,
+            "type": "forecast",
+            "area": area_bounds,
+        })
         assert output_path.exists()
         assert output_path.stat().st_size > 0

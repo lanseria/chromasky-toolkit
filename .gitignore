@@ -36,3 +36,5 @@ project_context.txt
 .DS_Store
 
 chroma-sky-tiles
+
+*.nc

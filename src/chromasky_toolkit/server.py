@@ -2,7 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -27,61 +27,50 @@ logger = logging.getLogger("ChromaSkyServer")
 # --- 定时任务逻辑 ---
 scheduler = AsyncIOScheduler()
 
-# 0点：生成今日朝霞 + 今日晚霞
-MORNING_EVENTS = ['today_sunrise', 'today_sunset']
-# 12点：生成今日晚霞(最新版) + 明日朝霞
-NOON_EVENTS = ['today_sunset', 'tomorrow_sunrise']
 
-# 最大重试次数
-MAX_RETRY_COUNT = 3
-# 重试间隔（分钟）
-RETRY_INTERVAL_MINUTES = 30
+def _get_next_two_events() -> list[str]:
+    """根据当前北京时间，确定接下来要生成的两个事件。
+    - 0:00~2:59:  今日日出 + 今日日落
+    - 3:00~14:59: 今日日落 + 明日日出
+    - 15:00~23:59: 明日日出 + 明日日落
+    """
+    now_beijing = datetime.now(ZoneInfo(config.LOCAL_TZ))
+    hour = now_beijing.hour
+    if hour < 3:
+        return ['today_sunrise', 'today_sunset']
+    elif hour < 15:
+        return ['today_sunset', 'tomorrow_sunrise']
+    else:
+        return ['tomorrow_sunrise', 'tomorrow_sunset']
 
 
-def _run_job(event_intentions: list[str], label: str, retry_count: int = 0):
-    """执行指定事件意图的工作流。失败时自动在30分钟后重试，最多重试3次。"""
-    retry_label = f"{label}" if retry_count == 0 else f"{label} (第 {retry_count} 次重试)"
-    logger.info(f"====== [Job Runner] {retry_label} 开始执行 ======")
+def _run_job(event_intentions: list[str], label: str):
+    """执行指定事件意图的工作流。第一步失败则直接终止，不重试。"""
+    logger.info(f"====== [Job Runner] {label} 开始执行 ======")
     try:
         run_full_workflow(event_intentions=event_intentions)
-        logger.info(f"====== [Job Runner] {retry_label} 执行成功 ======")
+        logger.info(f"====== [Job Runner] {label} 执行成功 ======")
     except Exception as e:
-        logger.error(f"====== [Job Runner] {retry_label} 执行失败: {e} ======", exc_info=True)
-        if retry_count < MAX_RETRY_COUNT:
-            next_retry = retry_count + 1
-            retry_time = datetime.now(timezone.utc) + timedelta(minutes=RETRY_INTERVAL_MINUTES)
-            logger.info(f"====== [Job Runner] 已安排在 {retry_time.isoformat()} 进行第 {next_retry} 次重试（共允许 {MAX_RETRY_COUNT} 次）======")
-            scheduler.add_job(
-                _run_job,
-                'date',
-                run_date=retry_time,
-                args=[event_intentions, label, next_retry],
-                id=f"retry_{label}_{next_retry}_{retry_time.strftime('%H%M')}",
-                replace_existing=False,
-            )
-        else:
-            logger.error(f"====== [Job Runner] {label} 已达到最大重试次数 ({MAX_RETRY_COUNT})，不再重试。======")
+        logger.error(f"====== [Job Runner] {label} 执行失败: {e} ======", exc_info=True)
+
+
+def _run_scheduled_job():
+    """定时任务入口：动态确定事件并执行。"""
+    events = _get_next_two_events()
+    now_beijing = datetime.now(ZoneInfo(config.LOCAL_TZ))
+    label = f"定时任务 {now_beijing.strftime('%H:%M')} 北京时间 ({', '.join(events)})"
+    _run_job(events, label)
 
 # --- FastAPI 应用生命周期管理 ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 应用启动时执行
-    logger.info("服务器启动，初始化定时任务...")
-    # 0:30 生成今日朝霞 + 今日晚霞
+    logger.info("服务器启动，初始化定时任务（每30分钟执行一次）...")
     scheduler.add_job(
-        _run_job, 'cron', hour=0, minute=30,
-        args=[MORNING_EVENTS, "0:30任务(朝霞+晚霞)"],
-        id="morning_chromasky_job"
-    )
-    # 12:30 生成今日晚霞(最新版) + 明日朝霞
-    scheduler.add_job(
-        _run_job, 'cron', hour=12, minute=30,
-        args=[NOON_EVENTS, "12:30任务(晚霞最新版+明日朝霞)"],
-        id="noon_chromasky_job"
+        _run_scheduled_job, 'cron', minute='0,30',
+        id="chromasky_half_hourly_job"
     )
     scheduler.start()
     yield
-    # 应用关闭时执行
     logger.info("服务器关闭，停止定时任务...")
     scheduler.shutdown()
 
@@ -107,13 +96,11 @@ templates = Jinja2Templates(directory=config.PROJECT_ROOT / "templates")
 # --- 新增：API 端点，用于手动触发任务 ---
 @app.post("/trigger-job", response_class=JSONResponse)
 async def trigger_job_endpoint(background_tasks: BackgroundTasks):
-    """
-    异步触发一次完整的数据处理流程。
-    """
+    """异步触发一次完整的数据处理流程。"""
     logger.info("====== [API] 接收到手动触发任务请求 ======")
-    # 手动触发使用 0 点任务配置（朝霞 + 晚霞）
-    background_tasks.add_task(_run_job, MORNING_EVENTS, "手动触发")
-    return {"message": "任务已在后台开始运行。请稍后刷新页面查看结果。"}
+    events = _get_next_two_events()
+    background_tasks.add_task(_run_job, events, "手动触发")
+    return {"message": f"任务已在后台开始运行，生成事件: {events}。请稍后刷新页面查看结果。"}
 
 
 # --- 新的根路由 / ---
