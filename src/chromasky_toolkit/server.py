@@ -2,7 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -54,11 +54,40 @@ def _run_job(event_intentions: list[str], label: str):
         logger.error(f"====== [Job Runner] {label} 执行失败: {e} ======", exc_info=True)
 
 
+def _event_intentions_to_group_keys(event_intentions: list[str]) -> list[str]:
+    """将事件意图列表展开为综合图的 group_key 列表，如 ['2025-08-21_sunset', ...]。"""
+    now_beijing = datetime.now(ZoneInfo(config.LOCAL_TZ))
+    today = now_beijing.date()
+    tomorrow = today + timedelta(days=1)
+    date_map = {
+        'today_sunrise': (today, 'sunrise'),
+        'today_sunset': (today, 'sunset'),
+        'tomorrow_sunrise': (tomorrow, 'sunrise'),
+        'tomorrow_sunset': (tomorrow, 'sunset'),
+    }
+    return [f"{date.strftime('%Y-%m-%d')}_{etype}" for date, etype in
+            (date_map[e] for e in event_intentions)]
+
+
+def _is_already_generated(event_intentions: list[str]) -> bool:
+    """检查指定事件的综合图是否已全部生成。"""
+    composite_dir = config.MAP_WEBP_OUTPUTS_DIR / "composite"
+    if not composite_dir.exists():
+        return False
+    for key in _event_intentions_to_group_keys(event_intentions):
+        if not any(composite_dir.glob(f"glow_index_composite_{key}.webp")):
+            return False
+    return True
+
+
 def _run_scheduled_job():
-    """定时任务入口：动态确定事件并执行。"""
+    """定时任务入口：动态确定事件并执行。如已生成则跳过。"""
     events = _get_next_two_events()
     now_beijing = datetime.now(ZoneInfo(config.LOCAL_TZ))
     label = f"定时任务 {now_beijing.strftime('%H:%M')} 北京时间 ({', '.join(events)})"
+    if _is_already_generated(events):
+        logger.info(f"====== [Job Runner] {label} 已生成，跳过 ======")
+        return
     _run_job(events, label)
 
 # --- FastAPI 应用生命周期管理 ---
