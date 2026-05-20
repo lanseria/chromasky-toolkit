@@ -45,6 +45,34 @@ def expand_target_events() -> Dict[str, datetime]:
     return dict(sorted(future_events.items()))
 
 
+def expand_all_future_events(days: int = 5) -> Dict[str, datetime]:
+    """
+    计算从今天起未来指定天数内所有日出和日落时间段的事件。
+    不依赖 FUTURE_TARGET_EVENT_INTENTIONS 配置，直接覆盖所有可用事件。
+    返回格式与 expand_target_events() 一致: {'YYYY-MM-DD_event_HHMM': datetime_utc}
+    """
+    local_tz = ZoneInfo(config.LOCAL_TZ)
+    now_local = datetime.now(local_tz)
+    today = now_local.date()
+
+    future_events: Dict[str, datetime] = {}
+
+    for day_offset in range(days):
+        target_date = today + timedelta(days=day_offset)
+
+        for event_type, event_times in [
+            ('sunrise', config.SUNRISE_EVENT_TIMES),
+            ('sunset', config.SUNSET_EVENT_TIMES),
+        ]:
+            for t_str in event_times:
+                event_time = datetime.strptime(t_str, '%H:%M').time()
+                dt_local = datetime.combine(target_date, event_time, tzinfo=local_tz)
+                name = f"{target_date.strftime('%Y-%m-%d')}_{event_type}_{t_str.replace(':', '')}"
+                future_events[name] = dt_local.astimezone(timezone.utc)
+
+    return dict(sorted(future_events.items()))
+
+
 def run_calculation():
     """
     执行完整的火烧云指数计算流程。

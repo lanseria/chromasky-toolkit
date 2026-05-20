@@ -5,7 +5,7 @@ import xarray as xr
 import itertools
 
 from . import config
-from .processing import expand_target_events
+from .processing import expand_all_future_events
 from .map_drawer import generate_map_from_grid
 
 logger = logging.getLogger(__name__)
@@ -18,9 +18,9 @@ def run_drawing():
     """
     logger.info("====== 开始执行地图绘制流程 ======")
 
-    target_events = expand_target_events()
+    target_events = expand_all_future_events()
     if not target_events:
-        logger.warning("根据配置，没有找到任何需要绘制的未来事件。流程终止。")
+        logger.warning("没有找到任何需要绘制的未来事件。流程终止。")
         return
 
     # --- 核心修改：按 (日期_事件类型) 对事件进行分组 ---

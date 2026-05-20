@@ -10,7 +10,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Tuple, Dict, List, Optional # <--- MODIFIED
 import xarray as xr
-from .processing import expand_target_events
+from .processing import expand_all_future_events
 
 from . import config
 
@@ -298,10 +298,10 @@ def run_acquisition() -> bool:
     """执行完整的数据获取和处理流程。返回 True 表示成功，False 表示失败。"""
     logger.info("====== 开始执行数据获取与分析流程 ======")
 
-    # 1. 确定需要处理的所有事件
-    target_events = expand_target_events()
+    # 1. 确定需要处理的所有事件（未来5天内的所有日出日落）
+    target_events = expand_all_future_events()
     if not target_events:
-        logger.warning("根据配置，没有找到任何需要处理的未来事件。流程终止。")
+        logger.warning("没有找到任何需要处理的未来事件。流程终止。")
         return False
 
     logger.info(f"将要处理的事件共 {len(target_events)} 个:")

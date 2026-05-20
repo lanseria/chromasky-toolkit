@@ -2,7 +2,7 @@
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo
@@ -28,75 +28,24 @@ logger = logging.getLogger("ChromaSkyServer")
 scheduler = AsyncIOScheduler()
 
 
-def _get_next_two_events() -> list[str]:
-    """根据当前北京时间，确定接下来要生成的两个事件。
-    - 0:00~2:59:  今日日出 + 今日日落
-    - 3:00~14:59: 今日日落 + 明日日出
-    - 15:00~23:59: 明日日出 + 明日日落
-    """
+def _run_scheduled_job():
+    """定时任务入口：执行完整工作流，生成未来5天内所有日出日落事件。"""
     now_beijing = datetime.now(ZoneInfo(config.LOCAL_TZ))
-    hour = now_beijing.hour
-    if hour < 3:
-        return ['today_sunrise', 'today_sunset']
-    elif hour < 15:
-        return ['today_sunset', 'tomorrow_sunrise']
-    else:
-        return ['tomorrow_sunrise', 'tomorrow_sunset']
-
-
-def _run_job(event_intentions: list[str], label: str):
-    """执行指定事件意图的工作流。第一步失败则直接终止，不重试。"""
+    label = f"定时任务 {now_beijing.strftime('%H:%M')} 北京时间"
     logger.info(f"====== [Job Runner] {label} 开始执行 ======")
     try:
-        run_full_workflow(event_intentions=event_intentions)
+        run_full_workflow()
         logger.info(f"====== [Job Runner] {label} 执行成功 ======")
     except Exception as e:
         logger.error(f"====== [Job Runner] {label} 执行失败: {e} ======", exc_info=True)
 
-
-def _event_intentions_to_group_keys(event_intentions: list[str]) -> list[str]:
-    """将事件意图列表展开为综合图的 group_key 列表，如 ['2025-08-21_sunset', ...]。"""
-    now_beijing = datetime.now(ZoneInfo(config.LOCAL_TZ))
-    today = now_beijing.date()
-    tomorrow = today + timedelta(days=1)
-    date_map = {
-        'today_sunrise': (today, 'sunrise'),
-        'today_sunset': (today, 'sunset'),
-        'tomorrow_sunrise': (tomorrow, 'sunrise'),
-        'tomorrow_sunset': (tomorrow, 'sunset'),
-    }
-    return [f"{date.strftime('%Y-%m-%d')}_{etype}" for date, etype in
-            (date_map[e] for e in event_intentions)]
-
-
-def _is_already_generated(event_intentions: list[str]) -> bool:
-    """检查指定事件的综合图是否已全部生成。"""
-    composite_dir = config.MAP_WEBP_OUTPUTS_DIR / "composite"
-    if not composite_dir.exists():
-        return False
-    for key in _event_intentions_to_group_keys(event_intentions):
-        if not any(composite_dir.glob(f"glow_index_composite_{key}.webp")):
-            return False
-    return True
-
-
-def _run_scheduled_job():
-    """定时任务入口：动态确定事件并执行。如已生成则跳过。"""
-    events = _get_next_two_events()
-    now_beijing = datetime.now(ZoneInfo(config.LOCAL_TZ))
-    label = f"定时任务 {now_beijing.strftime('%H:%M')} 北京时间 ({', '.join(events)})"
-    if _is_already_generated(events):
-        logger.info(f"====== [Job Runner] {label} 已生成，跳过 ======")
-        return
-    _run_job(events, label)
-
 # --- FastAPI 应用生命周期管理 ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("服务器启动，初始化定时任务（每30分钟执行一次）...")
+    logger.info("服务器启动，初始化定时任务（每3小时执行一次）...")
     scheduler.add_job(
-        _run_scheduled_job, 'cron', minute='0,30',
-        id="chromasky_half_hourly_job"
+        _run_scheduled_job, 'cron', hour='0,3,6,9,12,15,18,21',
+        id="chromasky_3hourly_job"
     )
     scheduler.start()
     yield
@@ -127,9 +76,8 @@ templates = Jinja2Templates(directory=config.PROJECT_ROOT / "templates")
 async def trigger_job_endpoint(background_tasks: BackgroundTasks):
     """异步触发一次完整的数据处理流程。"""
     logger.info("====== [API] 接收到手动触发任务请求 ======")
-    events = _get_next_two_events()
-    background_tasks.add_task(_run_job, events, "手动触发")
-    return {"message": f"任务已在后台开始运行，生成事件: {events}。请稍后刷新页面查看结果。"}
+    background_tasks.add_task(_run_scheduled_job)
+    return {"message": "任务已在后台开始运行，将生成未来5天内所有日出日落事件。请稍后刷新页面查看结果。"}
 
 
 # --- 新的根路由 / ---
