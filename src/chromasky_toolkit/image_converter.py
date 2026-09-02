@@ -66,6 +66,25 @@ def run_conversion():
         logger.info("====== 格式转换流程执行完毕！ ======")
         return
 
+    # 增量转换：目标 WebP 已存在且不早于源文件时跳过，避免每次全量重转
+    pending_files = []
+    skipped_count = 0
+    for png_path in png_files:
+        relative_path = png_path.relative_to(config.MAP_OUTPUTS_DIR)
+        target_path = (target_dir / relative_path).with_suffix(".webp")
+        if target_path.exists() and target_path.stat().st_mtime >= png_path.stat().st_mtime:
+            skipped_count += 1
+            continue
+        pending_files.append(png_path)
+
+    if skipped_count:
+        logger.info(f"跳过 {skipped_count} 个已是最新状态的 PNG 文件。")
+    if not pending_files:
+        logger.info("所有图片均已转换完毕，无需处理。")
+        logger.info("====== 格式转换流程执行完毕！ ======")
+        return
+
+    png_files = pending_files
     logger.info(f"找到 {len(png_files)} 个 PNG 文件准备转换到 WebP 格式。")
     logger.info(f"目标目录: {target_dir.relative_to(config.LOG_BASE_PATH)}")
     logger.info(f"转换参数: Quality={WEBP_QUALITY}, Effort(Method)={WEBP_METHOD}")

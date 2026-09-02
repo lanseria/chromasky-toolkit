@@ -113,20 +113,29 @@ def run_calculation():
             observation_time_utc = datetime.fromisoformat(weather_dataset.hcc.attrs['original_utc_time'])
             
             # 4a. 创建基于天文事件（日出/日落）的掩码
-            astro_mask = calculator.astro_service.create_event_mask(
-                weather_dataset.latitude,
-                weather_dataset.longitude,
+            # 逐点天文计算开销大，先只对 CALCULATION_AREA 内的行列计算，
+            # 再补齐为全网格掩码（范围外的点随后也会被地理掩码排除，结果不变）
+            calc_area = config.CALCULATION_AREA
+            lats = weather_dataset.latitude
+            lons = weather_dataset.longitude
+            area_lats = lats[(lats >= calc_area['south']) & (lats <= calc_area['north'])]
+            area_lons = lons[(lons >= calc_area['west']) & (lons <= calc_area['east'])]
+
+            if area_lats.size == 0 or area_lons.size == 0:
+                logger.warning(f"  - 计算范围与数据网格无交集，跳过此事件。")
+                continue
+
+            area_mask = calculator.astro_service.create_event_mask(
+                area_lats,
+                area_lons,
                 observation_time_utc,
                 event=event_type,
                 window_minutes=config.EVENT_WINDOW_MINUTES
             )
-            logger.info(f"  - 天文事件掩码（日出/日落）包含 {int(astro_mask.sum())} 个活动点。")
+            astro_mask = area_mask.reindex(latitude=lats, longitude=lons, fill_value=False)
+            logger.info(f"  - 天文事件掩码（日出/日落，计算范围内）包含 {int(astro_mask.sum())} 个活动点。")
 
             # 4b. 创建基于 CALCULATION_AREA 的地理范围掩码
-            lats = weather_dataset.latitude
-            lons = weather_dataset.longitude
-            calc_area = config.CALCULATION_AREA
-            
             calculation_area_mask = (
                 (lats >= calc_area['south']) & (lats <= calc_area['north']) &
                 (lons >= calc_area['west']) & (lons <= calc_area['east'])

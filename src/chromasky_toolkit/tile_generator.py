@@ -153,13 +153,17 @@ def generate_single_tile(
         tile_size: 瓦片尺寸
 
     Returns:
-        PIL RGBA Image
+        PIL RGBA Image；若该瓦片范围内无任何数据（全透明）则返回 None
     """
     lats, lons = tile_to_wgs84(z, x, y, tile_size)
 
     # 采样数据
     points = np.stack([lats.ravel(), lons.ravel()], axis=-1)
     sampled = interpolator(points).reshape(tile_size, tile_size)
+
+    # 全透明瓦片（所有像素均为 NaN）无需生成
+    if np.isnan(sampled).all():
+        return None
 
     # 归一化到 [0, 1]
     normalized = np.where(np.isnan(sampled), 0, sampled / score_max)
@@ -219,14 +223,22 @@ def generate_tiles_for_event(
     cmap_lut = create_colormap_lut()
 
     total_count = 0
+    skipped_empty = 0
     for z in zoom_levels:
         tiles = get_tiles_for_area(config.DISPLAY_AREA, z)
         z_count = 0
 
         for tz, tx, ty in tiles:
-            tile_img = generate_single_tile(tz, tx, ty, interpolator, score_max, cmap_lut, tile_size)
-
             output_path = base_path / str(tz) / str(tx) / str(ty) / f"{tile_name}.png"
+
+            tile_img = generate_single_tile(tz, tx, ty, interpolator, score_max, cmap_lut, tile_size)
+            if tile_img is None:
+                # 本次数据中该瓦片无内容：删除旧数据残留的同名瓦片，避免展示过期信息
+                if output_path.exists():
+                    output_path.unlink()
+                skipped_empty += 1
+                continue
+
             output_path.parent.mkdir(parents=True, exist_ok=True)
             tile_img.save(output_path, 'PNG')
             z_count += 1
@@ -234,6 +246,8 @@ def generate_tiles_for_event(
         total_count += z_count
         logger.info(f"  Zoom {z}: 已生成 {z_count} 个瓦片")
 
+    if skipped_empty:
+        logger.info(f"  跳过 {skipped_empty} 个无数据（全透明）瓦片")
     logger.info(f"事件 '{group_key}' 瓦片生成完毕，共 {total_count} 个")
 
     # 更新瓦片资源清单
