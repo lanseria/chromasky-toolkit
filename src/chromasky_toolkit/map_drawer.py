@@ -70,19 +70,23 @@ def generate_map_from_grid(
     score_grid: xr.DataArray, 
     title: str, 
     output_path: Path | None = None,
-    active_region_mask: xr.DataArray | None = None # 新增的可选参数
+    active_region_mask: xr.DataArray | None = None, # 新增的可选参数
+    extent: dict[str, float] | None = None # 新增的可选参数
 ) -> bytes | None:
     """
     根据给定的数据网格生成一张精美的暗色主题地图。
     *** 新版本: 可以额外绘制一个活动区域掩码的轮廓。***
-
+    
     Args:
         score_grid (xr.DataArray): 包含地理坐标和数值的数据网格。
         title (str): 地图的标题。
         output_path (Path | None, optional): 保存地图的文件路径。如果为 None，则不保存文件。
         active_region_mask (xr.DataArray | None, optional): 
             一个布尔类型的掩码，用于在图上高亮显示计算区域。
-
+        extent (dict[str, float] | None, optional): 
+            地图图幅范围 {north, south, west, east}。为 None 时使用
+            config.DISPLAY_AREA，传入可让单张地图使用独立图幅。
+    
     Returns:
         bytes | None: 成功则返回 PNG 图像的二进制数据，失败则返回 None。
     """
@@ -111,7 +115,8 @@ def generate_map_from_grid(
         fig = plt.figure(figsize=(12, 10), facecolor='black')
         ax = fig.add_subplot(1, 1, 1, projection=proj)
         ax.set_facecolor('black')
-        area_bounds = [config.DISPLAY_AREA[k] for k in ["west", "east", "south", "north"]]
+        area_cfg = extent if extent is not None else config.DISPLAY_AREA
+        area_bounds = [area_cfg[k] for k in ["west", "east", "south", "north"]]
         ax.set_extent(area_bounds, crs=ccrs.PlateCarree())
         ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor='#0c0a09', zorder=0)
         ax.add_feature(cfeature.LAND.with_scale('50m'), facecolor='#1c1917', edgecolor='none', zorder=0)
@@ -202,9 +207,9 @@ if __name__ == "__main__":
 
     logger.info("===== 正在以独立模式运行 map_drawer.py 进行自测 =====")
     
-    # 创建模拟数据
-    lats = np.arange(config.DISPLAY_AREA["south"], config.DISPLAY_AREA["north"], 0.25)
-    lons = np.arange(config.DISPLAY_AREA["west"], config.DISPLAY_AREA["east"], 0.25)
+    # 创建模拟数据（真实计算结果覆盖 CALCULATION_AREA 网格）
+    lats = np.arange(config.CALCULATION_AREA["south"], config.CALCULATION_AREA["north"], 0.25)
+    lons = np.arange(config.CALCULATION_AREA["west"], config.CALCULATION_AREA["east"], 0.25)
     lon_grid, lat_grid = np.meshgrid(lons, lats)
     center_lon, center_lat = 115, 30
     sigma_lon, sigma_lat = 10, 8

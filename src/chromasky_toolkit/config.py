@@ -19,13 +19,17 @@ LOG_BASE_PATH: Path = PROJECT_ROOT.parent
 
 
 # --- 2. 加载环境变量 ---
-dotenv_path = PROJECT_ROOT / '.env'
+# 优先加载项目根目录的 .env（与 docker-compose 的 env_file、.env.example 文档一致），
+# 回退到 src/ 下的 .env（兼容旧布局）；进程环境中已存在的变量优先，不会被覆盖
+_root_env_path = PROJECT_ROOT.parent / '.env'
+_src_env_path = PROJECT_ROOT / '.env'
+dotenv_path = _root_env_path if _root_env_path.exists() else _src_env_path
 if dotenv_path.exists():
     load_dotenv(dotenv_path=dotenv_path)
     # 第一次加载时打印信息，方便调试
     # print(f"✅ Config: .env 文件已从 {dotenv_path} 加载")
 else:
-    print(f"⚠️ Config: 未找到 .env 文件于 {dotenv_path}")
+    print(f"⚠️ Config: 未找到 .env 文件于 {_root_env_path} 或 {_src_env_path}")
 
 # --- 3. API 和密钥配置 ---
 # 从环境变量中获取 CDS 配置
@@ -35,37 +39,89 @@ CDS_API_URL: str = "https://ads.atmosphere.copernicus.eu/api" # CAMS API URL
 
 
 # --- 4. 数据处理与下载配置 ---
-# 定义两个地理范围:
-# 1. DISPLAY_AREA: 最终在地图上展示的区域。
-# 2. DOWNLOAD_AREA: 实际从服务器下载数据的区域，比展示区域更大，以确保边界计算的准确性。
+# 地理范围三级结构，逐级向外扩展，所有边界均支持环境变量(.env)精细覆盖:
+#
+#   DISPLAY_AREA     展示范围: 地图图幅与 XYZ 瓦片的覆盖范围（最终用户可见区域）
+#   CALCULATION_AREA 计算范围: 火烧云指数实际计算的格点范围。
+#                    默认 = 展示范围四周外扩 CALC_MARGIN_DEGREES，
+#                    以抵消高斯平滑在数据边缘的收缩，保证图幅边缘渲染完整。
+#   DOWNLOAD_AREA    下载范围: 向服务器下载数据的范围 = 计算范围四周外扩
+#                    DOWNLOAD_BUFFER_DEGREES。缓冲区对于精确计算边界区域的
+#                    云边界距离至关重要。
+#
+# 默认值依据 map_data 中的国界数据实测边界确定:
+#   中国陆地及南海诸岛: 西 73.5°E / 南 3.8°N / 东 135.1°E / 北 53.6°N
+#   九段线最南端约 3.4°N
 
-# 展示范围 (覆盖中国大部分地区)
+
+def _env_float(name: str, default: float) -> float:
+    """从环境变量读取浮点数边界值，未设置或非法时返回默认值。"""
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        print(f"⚠️ Config: 环境变量 {name}={raw!r} 不是合法数字，已忽略并使用默认值 {default}。")
+        return default
+
+
+def _validate_area(area: Dict[str, float], name: str) -> None:
+    """校验区域字典的南北/东西关系，配置错误时立即报错，避免生成残缺地图。"""
+    if not area["north"] > area["south"]:
+        raise ValueError(f"Config: {name} 的 north({area['north']}) 必须大于 south({area['south']})")
+    if not area["east"] > area["west"]:
+        raise ValueError(f"Config: {name} 的 east({area['east']}) 必须大于 west({area['west']})")
+
+
+# 4.1 展示范围（地图图幅）：默认完整覆盖整个中国大陆及南海诸岛（含九段线）
 DISPLAY_AREA: Dict[str, float] = {
-    "north": 54.00,
-    "south": 0.00,
-    "west": 70.00,
-    "east": 135.00,
+    "north": _env_float("DISPLAY_NORTH", 54.0),
+    "south": _env_float("DISPLAY_SOUTH", 2.0),
+    "west": _env_float("DISPLAY_WEST", 72.0),
+    "east": _env_float("DISPLAY_EAST", 136.0),
 }
+_validate_area(DISPLAY_AREA, "DISPLAY_AREA")
 
-# 计算范围 (用户定义的核心关注区域)
+# 4.2 计算范围：默认在展示范围基础上四周外扩（渲染边缘缓冲）
+# 如需仅关注某个区域（如只算华南），可通过 CALC_* 环境变量单独收缩，
+# 但注意收缩后图幅对应区域将没有指数数据
+CALC_MARGIN_DEGREES: float = max(0.0, _env_float("CALC_MARGIN_DEGREES", 1.0))
 CALCULATION_AREA: Dict[str, float] = {
-    "north": 54.00,
-    "south": 16.00,
-    "west": 73.00,
-    "east": 136.00,
+    "north": _env_float("CALC_NORTH", DISPLAY_AREA["north"] + CALC_MARGIN_DEGREES),
+    "south": _env_float("CALC_SOUTH", DISPLAY_AREA["south"] - CALC_MARGIN_DEGREES),
+    "west": _env_float("CALC_WEST", DISPLAY_AREA["west"] - CALC_MARGIN_DEGREES),
+    "east": _env_float("CALC_EAST", DISPLAY_AREA["east"] + CALC_MARGIN_DEGREES),
 }
+_validate_area(CALCULATION_AREA, "CALCULATION_AREA")
 
-# 下载范围 (在展示范围基础上，向四周各扩展15度作为缓冲区)
-# 这个缓冲区对于精确计算边界区域的云边界距离至关重要
+# 4.3 下载范围（在计算范围基础上，向四周各扩展缓冲区）
+DOWNLOAD_BUFFER_DEGREES: float = _env_float("DOWNLOAD_BUFFER_DEGREES", 15.0)
 DOWNLOAD_AREA: Dict[str, float] = {
-    "north": DISPLAY_AREA["north"] + 15.0, # 扩展到 69.0
-    "south": DISPLAY_AREA["south"] - 15.0, # 扩展到 -15.0
-    "west": DISPLAY_AREA["west"] - 15.0,   # 扩展到 55.0
-    "east": DISPLAY_AREA["east"] + 15.0,   # 扩展到 150.0
+    "north": CALCULATION_AREA["north"] + DOWNLOAD_BUFFER_DEGREES,
+    "south": CALCULATION_AREA["south"] - DOWNLOAD_BUFFER_DEGREES,
+    "west": CALCULATION_AREA["west"] - DOWNLOAD_BUFFER_DEGREES,
+    "east": CALCULATION_AREA["east"] + DOWNLOAD_BUFFER_DEGREES,
 }
-# 对下载范围进行边界检查，确保纬度在[-90, 90]和经度在[-180, 180]或[0, 360]的有效范围内
+# 对下载范围进行边界检查，确保纬度在[-90, 90]和经度在[-180, 180]的有效范围内
 DOWNLOAD_AREA["north"] = min(DOWNLOAD_AREA["north"], 90.0)
 DOWNLOAD_AREA["south"] = max(DOWNLOAD_AREA["south"], -90.0)
+DOWNLOAD_AREA["west"] = max(DOWNLOAD_AREA["west"], -180.0)
+DOWNLOAD_AREA["east"] = min(DOWNLOAD_AREA["east"], 180.0)
+_validate_area(DOWNLOAD_AREA, "DOWNLOAD_AREA")
+
+
+def _format_area(area: Dict[str, float]) -> str:
+    return f"西{area['west']:.1f}°E 东{area['east']:.1f}°E, 南{area['south']:.1f}°N 北{area['north']:.1f}°N"
+
+
+print(
+    "✅ Config: 地理范围已加载:\n"
+    f"  展示范围(DISPLAY): {_format_area(DISPLAY_AREA)}\n"
+    f"  计算范围(CALCULATION): {_format_area(CALCULATION_AREA)}\n"
+    f"  下载范围(DOWNLOAD): {_format_area(DOWNLOAD_AREA)}\n"
+    "  (可通过环境变量 DISPLAY_*/CALC_*/CALC_MARGIN_DEGREES/DOWNLOAD_BUFFER_DEGREES 覆盖)"
+)
 
 # 本地时区
 LOCAL_TZ: str = "Asia/Shanghai"

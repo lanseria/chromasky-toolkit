@@ -176,6 +176,38 @@ uvicorn src.chromasky_toolkit.server:app --reload
 
 所有输出将保存在 `outputs/` 目录中。
 
+## 🗺️ 地理范围配置
+
+系统采用三级地理范围结构，逐级向外扩展，保证图幅边缘渲染完整、边界计算准确：
+
+| 范围 | 用途 | 默认值 |
+|------|------|--------|
+| `DISPLAY_AREA` | 地图图幅与 XYZ 瓦片的可见范围 | 西 72°E / 东 136°E / 南 2°N / 北 54°N |
+| `CALCULATION_AREA` | 火烧云指数实际计算的格点范围 | 展示范围四周外扩 1° |
+| `DOWNLOAD_AREA` | 从服务器下载数据的范围 | 计算范围四周外扩 15° |
+
+默认图幅**完整覆盖整个中国大陆及南海诸岛（含九段线，最南至曾母暗沙约 3.9°N，最东至黑龙江与乌苏里江汇合处约 135.1°E）**。
+
+所有边界均可在 `.env` 中用环境变量精细覆盖，无需修改代码（详见 `.env.example`）：
+
+```env
+# 展示范围（地图图幅）
+DISPLAY_NORTH=54
+DISPLAY_SOUTH=2
+DISPLAY_WEST=72
+DISPLAY_EAST=136
+
+# 计算范围（缺省 = 展示范围四周外扩 CALC_MARGIN_DEGREES）
+CALC_MARGIN_DEGREES=1
+# 也可单独指定任一边界
+#CALC_SOUTH=10
+
+# 下载缓冲区（度）
+DOWNLOAD_BUFFER_DEGREES=15
+```
+
+> ⚠️ 注意：若将计算范围收缩得比展示范围小，图幅中超出计算范围的区域将没有指数数据（空白）。
+
 ## 🧪 测试
 
 本项目使用 `pytest` 进行测试，`freezegun` 用于模拟时间。
