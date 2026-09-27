@@ -1,7 +1,3 @@
-# CLAUDE.md
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
 ChromaSky Toolkit 是一个 Python 火烧云（晚霞/朝霞）指数预测工具。它自动从 GFS（云量预报）和 CAMS（气溶胶数据）下载气象数据，通过混合评分模型计算火烧云指数，并生成高质量的指数地图。Python 3.12+，使用 uv 管理依赖。

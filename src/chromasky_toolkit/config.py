@@ -198,8 +198,8 @@ CALCULATION_OUTPUTS_DIR: Path = OUTPUTS_DIR / "calculations" # 用于存放计�
 
 # --- 7. 绘图样式配置 (可选，但推荐) ---
 # 将颜色、字体等也放入配置，方便统一修改风格
-MAP_FONT_NAME: str = "LXGW WenKai" # 我们要使用的字体名称
-MAP_FONT_FILENAME: str = "LXGWWenKai-Regular.ttf" # 字体对应的文件名
+MAP_FONT_NAME: str = "LXGW WenKai Mono" # 我们要使用的字体名称
+MAP_FONT_FILENAME: str = "LXGWWenKaiMono-Regular.ttf" # 字体对应的文件名
 CHROMA_SKY_COLORS: List[str] = ["#3b82f6", "#fde047", "#f97316", "#ef4444", "#ec4899"]
 CHROMA_SKY_COLOR_NODES: List[float] = [0.0, 0.5, 0.7, 0.85, 1.0]
 

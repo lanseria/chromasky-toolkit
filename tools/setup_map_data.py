@@ -28,9 +28,9 @@ MAP_DATA_URL = "https://ghfast.top/https://github.com/Supeset/China-GeoData/arch
 MAP_ZIP_FILENAME = "china-geodata.zip"
 
 # --- 字体数据配置 ---
-FONT_BASE_URL = "https://ghfast.top/https://github.com/lxgw/LxgwWenKai/raw/main/fonts/TTF/"
+FONT_BASE_URL = "https://ghfast.top/https://github.com/lxgw/LxgwWenKai/releases/download/v1.522/"
 FONT_FILENAMES = [
-    "LXGWWenKai-Regular.ttf",
+    "LXGWWenKaiMono-Regular.ttf",
 ]
 FONT_TARGET_DIR = config.FONT_DIR
 
