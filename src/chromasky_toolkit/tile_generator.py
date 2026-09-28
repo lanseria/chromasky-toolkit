@@ -258,11 +258,12 @@ def generate_tiles_for_event(
 
 def run_tile_generation():
     """从已有计算结果重新生成 XYZ 瓦片（独立模式，不绘制地图）。"""
-    from .processing import expand_target_events
+    from .processing import expand_all_future_events
 
     logger.info("====== 开始执行 XYZ 瓦片生成流程 ======")
 
-    target_events = expand_target_events()
+    # 与数据获取/计算/绘图阶段一致，覆盖未来 5 天内的所有事件
+    target_events = expand_all_future_events()
     if not target_events:
         logger.warning("没有找到需要处理的事件。")
         return
@@ -270,6 +271,7 @@ def run_tile_generation():
     event_grouper = lambda name: "_".join(name.split('_')[:2])
     sorted_events = sorted(target_events.items(), key=lambda item: event_grouper(item[0]))
 
+    missing_summary: list[str] = []
     for group_key, group_events_iterator in itertools.groupby(
         sorted_events, key=lambda item: event_grouper(item[0])
     ):
@@ -280,17 +282,24 @@ def run_tile_generation():
             date_str, event_type, time_str = event_name.split('_')
             result_path = config.CALCULATION_OUTPUTS_DIR / date_str / f"glow_index_result_{time_str}.nc"
             if result_path.exists():
-                ds = xr.open_dataset(result_path)
-                all_arrays.append(ds['final_score'])
+                with xr.open_dataset(result_path) as ds:
+                    all_arrays.append(ds['final_score'].load())
             else:
-                logger.warning(f"  计算结果文件未找到: {result_path}")
+                missing_summary.append(str(result_path.relative_to(config.LOG_BASE_PATH)))
 
         if all_arrays:
-            combined = xr.concat(all_arrays, dim='time').max(dim='time')
+            # coords='minimal'：显式指定合并行为，与 mapping.py 保持一致
+            combined = xr.concat(all_arrays, dim='time', coords='minimal').max(dim='time')
             count = generate_tiles_for_event(combined, group_key)
             logger.info(f"组 '{group_key}': 已生成 {count} 个瓦片")
         else:
             logger.warning(f"组 '{group_key}': 没有可用的计算数据")
+
+    if missing_summary:
+        logger.warning(
+            f"瓦片生成阶段共有 {len(missing_summary)} 个计算结果文件缺失，"
+            f"涉及文件: {', '.join(missing_summary)}"
+        )
 
     logger.info("====== XYZ 瓦片生成流程执行完毕！ ======")
 

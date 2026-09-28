@@ -1,6 +1,7 @@
 # src/chromasky_toolkit/image_converter.py
 
 import logging
+import sys
 from pathlib import Path
 from PIL import Image
 from tqdm.auto import tqdm
@@ -9,6 +10,12 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from . import config
 
 logger = logging.getLogger("ImageConverter")
+
+
+def _tqdm(iterable=None, **kwargs):
+    """非 TTY 环境（容器/重定向日志）下禁用进度条，避免污染日志输出。"""
+    kwargs.setdefault('disable', not sys.stderr.isatty())
+    return tqdm(iterable, **kwargs)
 
 # 定义 WebP 转换参数
 WEBP_QUALITY = 75
@@ -97,7 +104,7 @@ def run_conversion():
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
         futures = [executor.submit(_convert_single_image, png_path) for png_path in png_files]
         
-        with tqdm(total=len(futures), desc="Converting to WebP") as pbar:
+        with _tqdm(total=len(futures), desc="Converting to WebP") as pbar:
             for future in as_completed(futures):
                 source, result = future.result()
                 if result:

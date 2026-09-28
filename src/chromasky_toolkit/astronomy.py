@@ -1,6 +1,7 @@
 import ephem
 import logging
 import numpy as np
+import sys
 from datetime import datetime, date, time, timedelta, timezone
 from functools import lru_cache
 from typing import Dict, Optional, Literal
@@ -8,6 +9,12 @@ import xarray as xr
 from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
+
+
+def _tqdm(iterable=None, **kwargs):
+    """非 TTY 环境（容器/重定向日志）下禁用进度条，避免污染日志输出。"""
+    kwargs.setdefault('disable', not sys.stderr.isatty())
+    return tqdm(iterable, **kwargs)
 
 
 @lru_cache(maxsize=100_000)
@@ -98,7 +105,7 @@ class AstronomyService:
         time_window = timedelta(minutes=window_minutes)
 
         lon_values = lons.values
-        with tqdm(total=len(lats), desc=f"Calculating {event} times") as pbar:
+        with _tqdm(total=len(lats), desc=f"Calculating {event} times") as pbar:
             for i, lat in enumerate(lats.values):
                 for j, lon in enumerate(lon_values):
                     event_time_utc = _cached_event_time(lat, lon, target_date, event)

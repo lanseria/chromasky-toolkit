@@ -28,6 +28,15 @@ LOCAL_TZ = ZoneInfo(config.LOCAL_TZ)
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _local_to_utc_hours(times_hhmm: list[str]) -> set[int]:
+    """将本地时间列表 (HH:MM) 转为 UTC 小时集合（Asia/Shanghai = UTC+8）。
+
+    config 的时间表按导入时的真实月份选择季节，测试期望值必须从同一来源
+    动态推导，否则换季时（如 9 月跑夏季写死的用例）必然失败。
+    """
+    return {(int(t[:2]) - 8) % 24 for t in times_hhmm}
+
+
 def _calc_leadtime_hours(base_run_time: datetime, target_events: dict) -> list[int]:
     """模拟 data_acquisition.py 中 acquire_cams_data 的 leadtime 计算逻辑"""
     leadtime_hours = {
@@ -101,8 +110,8 @@ class TestEventExpansion:
         events = expand_target_events()
         sunset_events = {k: v for k, v in events.items() if "sunset" in k}
 
-        # 夏季 today_sunset: 19:00-22:00 CST = 11:00-14:00 UTC
-        expected_utc_hours = {11, 12, 13, 14}
+        # today_sunset 的 UTC 小时 = 当季配置的本地时间段 - 8
+        expected_utc_hours = _local_to_utc_hours(config.SUNSET_EVENT_TIMES)
         actual_utc_hours = {v.hour for v in sunset_events.values()}
         assert actual_utc_hours == expected_utc_hours
 
@@ -111,8 +120,8 @@ class TestEventExpansion:
         events = expand_target_events()
         sunrise_events = {k: v for k, v in events.items() if "sunrise" in k}
 
-        # 夏季 tomorrow_sunrise: 04:00-07:00 CST = 20:00-23:00 UTC (前一天)
-        expected_utc_hours = {20, 21, 22, 23}
+        # tomorrow_sunrise 的 UTC 小时 = 当季配置的本地时间段 - 8（可能跨到前一日）
+        expected_utc_hours = _local_to_utc_hours(config.SUNRISE_EVENT_TIMES)
         actual_utc_hours = {v.hour for v in sunrise_events.values()}
         assert actual_utc_hours == expected_utc_hours
 
@@ -174,9 +183,20 @@ class TestLeadtimeValidity:
 
         leadtimes = _calc_leadtime_hours(base_run_time, events)
 
-        # today_sunset(11:00-14:00 UTC May16) - base(12:00 UTC May15) = 23-26h
-        # tomorrow_sunrise(20:00-23:00 UTC May16) - base = 32-35h
-        assert leadtimes == [23, 24, 25, 26, 32, 33, 34, 35]
+        # 期望值由当季配置的时间段与冻结日期动态推导（today_sunset + tomorrow_sunrise），
+        # 不写死具体小时数，否则换季后（如 9 月为春秋季时段）用例必然失败
+        today = datetime(2026, 5, 16).date()  # 冻结时刻对应的本地日期
+        expected = set()
+        for offset_days, times in [(0, config.SUNSET_EVENT_TIMES), (1, config.SUNRISE_EVENT_TIMES)]:
+            for t_str in times:
+                dt_local = datetime.strptime(
+                    f"{today + timedelta(days=offset_days)} {t_str}", "%Y-%m-%d %H:%M"
+                ).replace(tzinfo=LOCAL_TZ)
+                lt = round((dt_local.astimezone(timezone.utc) - base_run_time).total_seconds() / 3600)
+                if lt >= 0:
+                    expected.add(lt)
+
+        assert leadtimes == sorted(expected)
 
 
 # ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from typing import Dict, List
+import numpy as np
 import xarray as xr
 
 from . import config
@@ -77,12 +78,14 @@ def run_calculation():
     """
     执行完整的火烧云指数计算流程。
     从 processed 目录读取数据，计算指数，并将结果保存到 outputs 目录。
+    覆盖未来 5 天内所有日出/日落时间点，与数据获取、地图绘制阶段保持一致，
+    避免出现"只计算了 2 个事件、绘图却要画 5 天"导致的批量文件缺失告警。
     """
     logger.info("====== 开始执行火烧云指数计算流程 ======")
-    
-    target_events = expand_target_events()
+
+    target_events = expand_all_future_events()
     if not target_events:
-        logger.warning("根据配置，没有找到任何需要计算的未来事件。流程终止。")
+        logger.warning("没有找到任何需要计算的未来事件。流程终止。")
         return
 
     for event_name, target_time_utc in target_events.items():
@@ -147,22 +150,32 @@ def run_calculation():
             
             active_points_count = int(final_active_mask.sum())
             if active_points_count == 0:
-                logger.warning(f"  - 在天文事件和指定计算范围的交集中没有找到任何活动点，跳过计算。")
-                continue
-            logger.info(f"  - 将为 {active_points_count} 个活动格点计算指数...")
+                # 该时间点没有日出/日落活动点：写入全零结果占位，让下游绘图/瓦片
+                # 流程明确"此时间点已计算且无指数"，而不是当作文件缺失反复告警
+                logger.info(f"  - 该时间点在计算范围内无日出/日落活动点，写入全零结果。")
+                results_ds = xr.Dataset({
+                    name: xr.zeros_like(weather_dataset['hcc'], dtype=np.float32)
+                    for name in ['final_score'] + GlowIndexCalculator.ALL_FACTORS
+                })
+            else:
+                logger.info(f"  - 将为 {active_points_count} 个活动格点计算指数...")
 
-            # 5. 执行网格计算
-            results_ds = calculator.calculate_for_grid(
-                utc_time=observation_time_utc,
-                active_mask=final_active_mask,
-                factors=GlowIndexCalculator.ALL_FACTORS
-            )
+                # 5. 执行网格计算
+                results_ds = calculator.calculate_for_grid(
+                    utc_time=observation_time_utc,
+                    active_mask=final_active_mask,
+                    factors=GlowIndexCalculator.ALL_FACTORS
+                )
+
+            # 输入数据已被矢量化计算读入内存，及时释放文件句柄
+            for da in data_arrays.values():
+                da.close()
 
             # 6. 保存计算结果
             output_dir = config.CALCULATION_OUTPUTS_DIR / date_str
             output_dir.mkdir(parents=True, exist_ok=True)
             output_path = output_dir / f"glow_index_result_{time_str}.nc"
-            
+
             results_ds.attrs['description'] = f"Glow index calculation result for {event_name}"
             results_ds.attrs['calculation_utc_time'] = datetime.now(timezone.utc).isoformat()
             results_ds.to_netcdf(output_path)

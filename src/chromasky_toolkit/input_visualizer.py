@@ -5,7 +5,7 @@ from pathlib import Path
 import xarray as xr
 
 from . import config
-from .processing import expand_target_events
+from .processing import expand_all_future_events
 from .map_drawer import generate_map_from_grid
 
 logger = logging.getLogger(__name__)
@@ -20,9 +20,9 @@ def run_input_visualization():
     """
     logger.info("====== 开始执行输入数据可视化流程 ======")
 
-    target_events = expand_target_events()
+    target_events = expand_all_future_events()
     if not target_events:
-        logger.warning("根据配置，没有找到任何需要可视化的未来事件。流程终止。")
+        logger.warning("没有找到任何需要可视化的未来事件。流程终止。")
         return
 
     for event_name, target_time_utc in target_events.items():

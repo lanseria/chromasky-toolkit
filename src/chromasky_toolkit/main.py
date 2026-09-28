@@ -2,7 +2,6 @@
 
 import argparse
 import logging
-from typing import List
 
 # --- 设置基础日志 ---
 logging.basicConfig(
@@ -12,16 +11,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ChromaSkyToolkit")
 
-def run_full_workflow(event_intentions: List[str] | None = None):
+def run_full_workflow():
     """
-    执行完整的 "获取 -> 计算 -> 绘制" 工作流。
-
-    Args:
-        event_intentions: 覆盖 config 中的事件意图列表，如 ['today_sunrise', 'today_sunset']
+    执行完整的 "获取 -> 计算 -> 绘制 -> 转换 -> 瓦片" 工作流。
+    各阶段统一覆盖未来 5 天内所有日出/日落时间点。
     """
-    from . import config
-    if event_intentions is not None:
-        config.FUTURE_TARGET_EVENT_INTENTIONS = event_intentions
     logger.info("=" * 25 + " 1. 数据获取 " + "=" * 25)
     from . import data_acquisition
     acquisition_success = data_acquisition.run_acquisition()

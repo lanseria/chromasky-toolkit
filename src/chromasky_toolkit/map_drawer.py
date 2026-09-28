@@ -17,7 +17,8 @@ from scipy.ndimage import gaussian_filter
 
 from . import config
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+# 注意：此处不调用 logging.basicConfig()——库模块导入时不应抢占全局日志配置，
+# 由入口（main.py / server.py / 测试）统一初始化。
 logger = logging.getLogger("MapDrawer")
 
 # --- 关键修正：智能字体设置 ---
@@ -66,6 +67,31 @@ except Exception as e:
 
 
 # --- 4. 核心绘图函数 ---
+
+# 每个进程只提醒一次的地图底图缺失告警（批量绘图时避免逐张刷屏）
+_map_data_missing_warned = False
+_font_missing_warned = False
+
+
+def _warn_map_data_missing_once() -> None:
+    global _map_data_missing_warned
+    if not _map_data_missing_warned:
+        logger.error(
+            f"地图数据文件未在 '{config.MAP_DATA_DIR}' 目录中找到，"
+            "国界/九段线将缺失。请运行 `python tools/setup_map_data.py`（本告警每次进程仅提示一次）。"
+        )
+        _map_data_missing_warned = True
+
+
+def _warn_cities_missing_once() -> None:
+    global _font_missing_warned
+    if not _font_missing_warned:
+        logger.warning(
+            f"未找到城市数据文件: {config.CITIES_CSV_PATH}，本次进程内将跳过城市绘制。"
+        )
+        _font_missing_warned = True
+
+
 def generate_map_from_grid(
     score_grid: xr.DataArray, 
     title: str, 
@@ -153,7 +179,7 @@ def generate_map_from_grid(
 
         # 添加地理边界
         if not all([config.CHINA_SHP_PATH.exists(), config.NINE_DASH_LINE_SHP_PATH.exists()]):
-            logger.error(f"地图数据文件未在 '{config.MAP_DATA_DIR}' 目录中找到。请运行 `python tools/setup_map_data.py`")
+            _warn_map_data_missing_once()
         else:
             ax.add_geometries(shapereader.Reader(str(config.CHINA_SHP_PATH)).geometries(), proj, facecolor='none', edgecolor='#a8a29e', linewidth=0.5, zorder=2)
             ax.add_geometries(shapereader.Reader(str(config.NINE_DASH_LINE_SHP_PATH)).geometries(), proj, facecolor='none', edgecolor='#a8a29e', linewidth=1.0, zorder=2)
@@ -167,7 +193,7 @@ def generate_map_from_grid(
                 display_name = city['name'] if CHINESE_FONT_FOUND else city['name_en']
                 ax.text(city['lon'] + 0.1, city['lat'] + 0.1, display_name, color='white', fontsize=8, alpha=0.8, transform=proj, zorder=4)
         else:
-            logger.warning(f"未找到城市数据文件: {config.CITIES_CSV_PATH}，跳过城市绘制。")
+            _warn_cities_missing_once()
 
         # 添加网格线和标题
         gl = ax.gridlines(crs=proj, draw_labels=True, linewidth=0.5, color='#44403c', alpha=0.8, linestyle='--')

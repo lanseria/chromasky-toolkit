@@ -2,6 +2,7 @@
 
 import logging
 import shutil
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -68,6 +69,7 @@ def setup_font_data():
             files_downloaded += 1
         except Exception as e:
             logger.error(f"    > 下载字体 '{filename}' 失败: {e}")
+            sys.exit(1)
 
     if files_downloaded > 0:
         logger.info(f"✅ 成功下载 {files_downloaded} 个新的字体文件。")
@@ -112,7 +114,9 @@ def setup_map_data():
             logger.info(f"数据已成功下载到临时文件: {zip_path}")
         except Exception as e:
             logger.error(f"下载失败: {e}")
-            return
+            # 地图数据是绘图硬依赖，缺失时生成的地图没有国界/九段线。
+            # 以非零码退出，让 Docker 构建等调用方立即失败，而不是产出残缺镜像。
+            sys.exit(1)
 
         # 5. 解压ZIP文件
         extract_path = tmp_path / "extracted_data"
@@ -122,13 +126,13 @@ def setup_map_data():
             logger.info(f"文件已成功解压到临时目录: {extract_path}")
         except Exception as e:
             logger.error(f"解压失败: {e}")
-            return
+            sys.exit(1)
 
         # 6. 找到并移动所需文件
         repo_root_dir = next(extract_path.glob("China-GeoData-*"), None)
         if not repo_root_dir or not repo_root_dir.is_dir():
             logger.error("在解压目录中未找到预期的 'China-GeoData-*' 文件夹。")
-            return
+            sys.exit(1)
 
         source_shp_dir = repo_root_dir / "shp"
         source_csv_dir = repo_root_dir / "csv"
@@ -146,6 +150,9 @@ def setup_map_data():
 
         if files_moved > 0:
             logger.info(f"✅ 成功移动 {files_moved} 个地图和数据文件。")
+        else:
+            logger.error("未能移动任何地图数据文件。")
+            sys.exit(1)
 
     logger.info("===== 地图数据设置完成！ =====")
 

@@ -28,6 +28,43 @@ logger = logging.getLogger("ChromaSkyServer")
 scheduler = AsyncIOScheduler()
 
 
+def _ensure_runtime_assets() -> None:
+    """
+    启动时自检地图底图与字体数据，缺失时自动补齐。
+    场景：Docker 构建时下载数据的步骤可能因网络问题失败（或旧镜像未包含数据），
+    且 map_data 不在任何持久化卷中，缺失会一直存在。这里在服务启动时自愈一次。
+    """
+    import subprocess
+    import sys
+
+    required_ok = all([
+        config.CHINA_SHP_PATH.exists(),
+        config.NINE_DASH_LINE_SHP_PATH.exists(),
+        config.CITIES_CSV_PATH.exists(),
+        (config.FONT_DIR / config.MAP_FONT_FILENAME).exists(),
+    ])
+    if required_ok:
+        logger.info("✅ [自检] 地图底图与字体数据完整。")
+        return
+
+    logger.warning("[自检] 检测到地图/字体数据缺失，正在运行 tools/setup_map_data.py 补齐...")
+    project_root = config.LOG_BASE_PATH
+    try:
+        result = subprocess.run(
+            [sys.executable, str(project_root / "tools" / "setup_map_data.py")],
+            capture_output=True, text=True, timeout=300,
+        )
+        if result.returncode == 0:
+            logger.info("✅ [自检] 地图/字体数据补齐完成。")
+        else:
+            logger.error(
+                f"[自检] 地图/字体数据补齐失败（退出码 {result.returncode}）。"
+                f"输出: {result.stderr.strip() or result.stdout.strip()}"
+            )
+    except Exception as e:
+        logger.error(f"[自检] 运行数据补齐脚本时出错: {e}")
+
+
 def _run_scheduled_job():
     """定时任务入口：执行完整工作流，生成未来5天内所有日出日落事件。"""
     now_beijing = datetime.now(ZoneInfo(config.LOCAL_TZ))
@@ -43,6 +80,7 @@ def _run_scheduled_job():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("服务器启动，初始化定时任务（每3小时执行一次）...")
+    _ensure_runtime_assets()
     scheduler.add_job(
         _run_scheduled_job, 'cron', hour='0,3,6,9,12,15,18,21',
         id="chromasky_3hourly_job"
