@@ -36,6 +36,27 @@ else:
 CDS_API_KEY: str | None = os.getenv("CDS_API_KEY")
 CDS_API_URL: str = "https://ads.atmosphere.copernicus.eu/api" # CAMS API URL
 
+# --- 3.1 GitHub 下载加速前缀（可选）---
+# setup_map_data.py 从 GitHub 下载地图底图与字体时，是否走 ghfast.top 加速代理。
+# 默认不走（服务器/Docker 环境通常可直连 GitHub）；网络受限的本地开发环境
+# 可在 .env 中设置 GITHUB_ACCELERATE=true 启用。
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+GITHUB_ACCELERATE: bool = _env_bool("GITHUB_ACCELERATE", False)
+# 加速前缀直接拼接在原始 GitHub URL 前，如:
+#   https://ghfast.top/https://github.com/lxgw/LxgwWenKai/releases/...
+_GITHUB_ACCEL_PREFIX: str = "https://ghfast.top/"
+
+
+def github_url(url: str) -> str:
+    """按 GITHUB_ACCELERATE 配置返回实际的下载地址。"""
+    return f"{_GITHUB_ACCEL_PREFIX}{url}" if GITHUB_ACCELERATE else url
+
 
 
 # --- 4. 数据处理与下载配置 ---

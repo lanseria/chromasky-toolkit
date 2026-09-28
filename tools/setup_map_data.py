@@ -24,12 +24,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("DataSetup")
 
-# --- 地图数据配置 ---
-MAP_DATA_URL = "https://ghfast.top/https://github.com/Supeset/China-GeoData/archive/refs/heads/master.zip"
+# --- 地图数据配置（原始 GitHub 地址，是否走 ghfast.top 加速由 config.GITHUB_ACCELERATE 决定）---
+MAP_DATA_URL = config.github_url("https://github.com/Supeset/China-GeoData/archive/refs/heads/master.zip")
 MAP_ZIP_FILENAME = "china-geodata.zip"
 
-# --- 字体数据配置 ---
-FONT_BASE_URL = "https://ghfast.top/https://github.com/lxgw/LxgwWenKai/releases/download/v1.522/"
+# --- 字体数据配置（原始 GitHub 地址）---
+FONT_BASE_URL = config.github_url("https://github.com/lxgw/LxgwWenKai/releases/download/v1.522/")
 FONT_FILENAMES = [
     "LXGWWenKaiMono-Regular.ttf",
 ]
