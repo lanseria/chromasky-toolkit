@@ -288,8 +288,9 @@ def run_tile_generation():
                 missing_summary.append(str(result_path.relative_to(config.LOG_BASE_PATH)))
 
         if all_arrays:
-            # coords='minimal'：显式指定合并行为，与 mapping.py 保持一致
-            combined = xr.concat(all_arrays, dim='time', coords='minimal').max(dim='time')
+            # coords='minimal' + compat='override'：与 mapping.py 保持一致；
+            # override 丢弃各时段取值不同的 GFS step 坐标，避免 MergeError
+            combined = xr.concat(all_arrays, dim='time', coords='minimal', compat='override').max(dim='time')
             count = generate_tiles_for_event(combined, group_key)
             logger.info(f"组 '{group_key}': 已生成 {count} 个瓦片")
         else:

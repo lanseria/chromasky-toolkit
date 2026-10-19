@@ -119,9 +119,10 @@ def run_drawing():
             logger.info(f"\n--- 正在为组 '{group_key}' 生成综合最佳指数图 ---")
             try:
                 # 合并所有时间点的数据，并在时间维度上取最大值
-                # coords='minimal'：显式指定合并行为，消除 xarray 的 FutureWarning
+                # coords='minimal' + compat='override'：结果继承的 GFS step 坐标在各时段间
+                # 取值不同且非合并维度，override 使其在合并时被丢弃，否则抛 MergeError
                 combined_glow_index = xr.concat(
-                    all_glow_index_arrays, dim='time', coords='minimal'
+                    all_glow_index_arrays, dim='time', coords='minimal', compat='override'
                 ).max(dim='time')
 
                 # 准备标题和输出路径

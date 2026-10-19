@@ -65,7 +65,7 @@ def _build_cams_request_params(run_date, run_hour, leadtime_hours) -> dict:
 # ---------------------------------------------------------------------------
 
 class TestCAMSRunSelection:
-    """0:00 UTC 时，safe_margin=9h，应选前一天 12:00 UTC 的 CAMS 运行"""
+    """0:00 UTC 时，safe_margin=12h，应选前一天 12:00 UTC 的 CAMS 运行"""
 
     @freeze_time(MIDNIGHT_UTC)
     def test_selects_previous_day_12z(self):

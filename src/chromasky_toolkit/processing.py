@@ -104,7 +104,9 @@ def run_calculation():
                 if not file_path.exists():
                     raise FileNotFoundError(f"输入文件未找到: {file_path.relative_to(config.LOG_BASE_PATH)}")
                 data_array = xr.open_dataarray(file_path)
-                data_arrays[var] = data_array.rename(var)
+                # 丢弃继承自 GFS 的 step/valid_time 等非维度坐标：各变量文件取值不同，
+                # 会在 xr.Dataset 合并时报 MergeError
+                data_arrays[var] = data_array.reset_coords(drop=True).rename(var)
             
             weather_dataset = xr.Dataset(data_arrays)
             logger.info("  ✅ 所有必需的云量和AOD数据加载成功。")

@@ -147,7 +147,9 @@ def _find_latest_available_cams_run() -> Tuple[str, str] | None:
     """智能判断当前可用的最新 CAMS 运行周期 (00z 或 12z)。"""
     logger.info("--- [CAMS] 正在寻找最新的可用运行周期...")
     now_utc = datetime.now(timezone.utc)
-    safe_margin = timedelta(hours=9)
+    # CAMS 00z/12z 实际上架经常晚于起报 9 小时（请求过早会返回 400: no valid combination），
+    # 因此预留 12 小时
+    safe_margin = timedelta(hours=12)
     
     for i in range(4):
         potential_run_time = now_utc - timedelta(hours=i * 12)
