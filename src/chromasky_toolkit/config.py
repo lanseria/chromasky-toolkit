@@ -1,20 +1,31 @@
 # src/chromasky_toolkit/config.py
 
 import os
+import sys
 from pathlib import Path
 from typing import Dict, List, Literal
-from datetime import datetime
+from datetime import date, datetime
 from dotenv import load_dotenv
+
+
+# Windows 传统 GBK 控制台或重定向管道下，本模块启动日志中的 ✅/⚠️ 可能触发
+# UnicodeEncodeError，导致服务/脚本仅因 emoji 就无法启动。这里把标准流设为
+# 「无法编码的字符替换」而不是直接抛错；Linux / UTF-8 环境不受影响。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except (AttributeError, ValueError, OSError):  # pragma: no cover - 特殊流兼容
+        pass
 
 
 # --- 1. 项目根目录 ---
 # 这个是所有路径的基础，必须放在最前面
-# Path(__file__) -> 当前文件路径 (config.py)
+# Path(__file__) -> 当前文件路径 (src/chromasky_toolkit/config.py)
 # .resolve() -> 获取绝对路径
-# .parent.parent -> 从 src/chromasky_toolkit/ 向上跳两级到项目根目录
+# .parent.parent -> 从 src/chromasky_toolkit/ 向上跳两级到 src/（本项目的 PROJECT_ROOT 是 src 目录）
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # --- 新增: 定义一个用于日志输出的顶级项目路径 ---
-# PROJECT_ROOT 指向 /app/src, 而这个指向 /app
+# PROJECT_ROOT 指向 /app/src, 而这个指向 /app（真正的项目根目录）
 LOG_BASE_PATH: Path = PROJECT_ROOT.parent
 
 
@@ -179,6 +190,57 @@ else:
 
 # 在加载配置时打印信息，方便调试
 print(f"✅ Config: 当前为 {season}, 已自动选择对应的日出/日落时间段。")
+
+
+# 5.3 按「目标日期」而不是「当前日期」选择季节的公共辅助
+# Web UI 在展示历史/未来日期时需要按该日期自身的月份构造时间窗口；
+# 直接复用上面按「导入时当前月份」选定的 SUNRISE_EVENT_TIMES / SUNSET_EVENT_TIMES
+# 会在跨季查看时错位（例如 10 月查看 1 月的日落窗口）。
+# 说明：下面这两个函数只做只读查询，不改变现有 *_EVENT_TIMES 常量的行为。
+_WINTER_MONTHS: tuple[int, ...] = (11, 12, 1, 2)
+_SUMMER_MONTHS: tuple[int, ...] = (5, 6, 7, 8)
+
+
+def season_for_month(month: int) -> str:
+    """根据月份返回季节名称：冬季 / 夏季 / 春秋季。"""
+    if month in _WINTER_MONTHS:
+        return "冬季"
+    if month in _SUMMER_MONTHS:
+        return "夏季"
+    return "春秋季"
+
+
+def event_times_for_date(
+    target_date: date | datetime | str,
+    event: Literal["sunrise", "sunset"],
+) -> List[str]:
+    """
+    返回指定日期、指定事件类型的本地时间点列表（如春秋季日落 ["18:00", ..., "21:00"]）。
+
+    季节按 target_date 自身的月份选择，不能用当前月份推断历史日期。
+    返回的是新列表副本，调用方可安全修改，不会污染模块级常量。
+    """
+    if isinstance(target_date, datetime):
+        target_date = target_date.date()
+    elif isinstance(target_date, str):
+        target_date = date.fromisoformat(target_date)
+
+    if event == "sunrise":
+        table = {
+            "冬季": _SUNRISE_TIMES_WINTER,
+            "夏季": _SUNRISE_TIMES_SUMMER,
+            "春秋季": _SUNRISE_TIMES_EQUINOX,
+        }
+    elif event == "sunset":
+        table = {
+            "冬季": _SUNSET_TIMES_WINTER,
+            "夏季": _SUNSET_TIMES_SUMMER,
+            "春秋季": _SUNSET_TIMES_EQUINOX,
+        }
+    else:
+        raise ValueError(f"未知事件类型: {event!r}，只能是 'sunrise' 或 'sunset'")
+
+    return list(table[season_for_month(target_date.month)])
 
 # --- 未来事件处理意图配置 ---
 # 定义您想处理的未来事件列表。

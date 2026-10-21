@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+
+{% set status_labels = {'upcoming': '未开始', 'live': '进行中', 'past': '已结束'} %}
+{% set month_list = month_groups or [] %}
+
+{% block title %}历史存档 · ChromaSky 火烧云指数{% endblock %}
+
+{% block main %}
+<div class="wrap">
+
+    <header class="page-head">
+        <div class="page-head-main">
+            <p class="kicker">历史存档 · Archive</p>
+            <h1 class="page-title">每一次火烧云</h1>
+            <p class="page-lead">按日期与事件类型检索已生成的综合指数图。默认只看已结束的场次，也可以切换为全部或未来的预报。所有时间均为北京时间。</p>
+        </div>
+        <div class="page-aside">
+            <p class="stat-inline"><span class="stat-value">{{ history_total }}</span><span class="stat-label">条结果</span></p>
+            <p class="fine">共 {{ total_count }} 场 · 已结束 {{ past_count }} · 待看 {{ upcoming_count }}</p>
+        </div>
+    </header>
+
+    {% if not has_any_maps %}
+    <div class="empty empty--page">
+        <svg class="empty-glyph empty-glyph--small" viewBox="0 0 240 128" aria-hidden="true" focusable="false">
+            <defs>
+                <linearGradient id="archive-horizon" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0" stop-color="#ff5d73"></stop>
+                    <stop offset=".5" stop-color="#ff8a3d"></stop>
+                    <stop offset="1" stop-color="#ffd166"></stop>
+                </linearGradient>
+            </defs>
+            <circle cx="120" cy="84" r="28" fill="url(#archive-horizon)" opacity=".8"></circle>
+            <path d="M8 84h224" stroke="url(#archive-horizon)" stroke-width="1.5" opacity=".8"></path>
+            <path d="M30 100h180" stroke="#f3eee6" stroke-opacity=".18" stroke-width="1"></path>
+        </svg>
+        <h2 class="empty-title">还没有任何存档</h2>
+        <p>综合图生成后会自动归档到这里。可以先触发一次更新，或回到首页等待每日自动任务。</p>
+        <div class="empty-actions">
+            <button type="button" class="btn btn--primary" data-trigger-job>
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6"></path>
+                    <path d="M16.7 3.7v4.1h-4.1"></path>
+                </svg>
+                <span data-btn-label>更新预报</span>
+            </button>
+            <a class="btn btn--ghost" href="/">返回首页</a>
+        </div>
+    </div>
+    {% else %}
+
+    <nav class="stat-strip" aria-label="按时间范围快速筛选">
+        <a class="stat-cell" href="/history?scope=all" {% if filters.scope == 'all' %}aria-current="true"{% endif %}>
+            <span class="stat-cell-value mono">{{ scope_counts.all }}</span>
+            <span class="stat-cell-label">全部场次</span>
+        </a>
+        <a class="stat-cell" href="/history?scope=past" {% if filters.scope == 'past' %}aria-current="true"{% endif %}>
+            <span class="stat-cell-value mono">{{ scope_counts.past }}</span>
+            <span class="stat-cell-label">已结束</span>
+        </a>
+        <a class="stat-cell" href="/history?scope=future" {% if filters.scope == 'future' %}aria-current="true"{% endif %}>
+            <span class="stat-cell-value mono">{{ scope_counts.future }}</span>
+            <span class="stat-cell-label">未来待看</span>
+        </a>
+    </nav>
+
+    <form class="filters" method="get" action="/history" aria-label="历史存档筛选">
+        <div class="filters-head">
+            <p class="kicker kicker--flush">筛选</p>
+            <p class="fine">日期格式 YYYY-MM-DD</p>
+        </div>
+
+        <fieldset class="field field--scope">
+            <legend class="field-label">时间范围</legend>
+            <div class="segmented">
+                <label>
+                    <input type="radio" name="scope" value="past" {% if filters.scope == 'past' %}checked{% endif %}>
+                    <span>已结束</span>
+                </label>
+                <label>
+                    <input type="radio" name="scope" value="all" {% if filters.scope == 'all' %}checked{% endif %}>
+                    <span>全部</span>
+                </label>
+                <label>
+                    <input type="radio" name="scope" value="future" {% if filters.scope == 'future' %}checked{% endif %}>
+                    <span>未来</span>
+                </label>
+            </div>
+        </fieldset>
+
+        <div class="filter-fields">
+            <label class="field">
+                <span class="field-label">事件类型</span>
+                <select name="event">
+                    <option value="all" {% if filters.event == 'all' %}selected{% endif %}>全部</option>
+                    <option value="sunrise" {% if filters.event == 'sunrise' %}selected{% endif %}>日出</option>
+                    <option value="sunset" {% if filters.event == 'sunset' %}selected{% endif %}>日落</option>
+                </select>
+            </label>
+
+            <label class="field">
+                <span class="field-label">起始日期</span>
+                <input type="date" name="from" value="{{ filters.date_from or '' }}">
+            </label>
+
+            <label class="field">
+                <span class="field-label">结束日期</span>
+                <input type="date" name="to" value="{{ filters.date_to or '' }}">
+            </label>
+
+            <label class="field">
+                <span class="field-label">排序</span>
+                <select name="sort">
+                    <option value="desc" {% if filters.sort != 'asc' %}selected{% endif %}>日期从新到旧</option>
+                    <option value="asc" {% if filters.sort == 'asc' %}selected{% endif %}>日期从旧到新</option>
+                </select>
+            </label>
+        </div>
+
+        <div class="filter-row">
+            <label class="field field--date">
+                <span class="field-label">精确日期查询</span>
+                <input type="date" name="date" value="{{ filters.date or '' }}">
+                <span class="field-hint">优先于起始 / 结束日期；当天无存档时，返回最接近的一天。</span>
+            </label>
+            <div class="filter-actions">
+                <a class="btn btn--ghost" href="/history">重置</a>
+                <button type="submit" class="btn btn--primary">查询存档</button>
+            </div>
+        </div>
+    </form>
+
+    {% if filters_error %}
+    <div class="alert alert--danger" role="alert">
+        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10" cy="10" r="7.2"></circle>
+            <path d="M10 6.4v4.2"></path>
+            <path d="M10 13.6h.01"></path>
+        </svg>
+        <div class="alert-body"><p>{{ filters_error }}</p></div>
+    </div>
+    {% endif %}
+
+    {% if match_note %}
+    <div class="alert alert--info" role="status">
+        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10" cy="10" r="7.2"></circle>
+            <path d="M10 10.5v3"></path>
+            <path d="M10 6.6h.01"></path>
+        </svg>
+        <div class="alert-body"><p>{{ match_note }}</p></div>
+    </div>
+    {% endif %}
+
+    <div class="result-summary">
+        <p class="result-count">共 <strong class="mono">{{ history_total }}</strong> 条{% if filters.date %} · 精确日期 {{ filters.date }}{% endif %}</p>
+        <p class="fine">按日期{% if filters.sort == 'asc' %}升序{% else %}降序{% endif %}</p>
+    </div>
+
+    {% if month_list %}
+    {% for m in month_list %}
+    <section class="month" aria-labelledby="month-{{ m.key }}">
+        <header class="month-head">
+            <h2 class="month-label" id="month-{{ m.key }}">{{ m.label }}</h2>
+            <p class="month-count">{{ m.count }} 张</p>
+        </header>
+
+        <div class="archive-grid">
+            {% for e in m.events %}
+            <a class="archive-card" href="{{ e.image_url }}"
+               data-lightbox
+               data-lightbox-src="{{ e.image_url }}"
+               data-lightbox-alt="{{ e.image_title }}"
+               data-lightbox-caption="{{ e.image_title }}"
+               aria-label="查看 {{ e.date_label }} {{ e.event_label }} 综合图">
+                <span class="card-media">
+                    <img src="{{ e.image_url }}" alt="{{ e.image_title }}" loading="lazy" decoding="async">
+                </span>
+                <span class="archive-body">
+                    <span class="archive-date mono">{{ e.date_label_full }}</span>
+                    <span class="archive-title">{{ e.event_label }} · {{ e.window_text }}</span>
+                    <span class="archive-meta">
+                        <span class="chip chip--{{ e.event }}">{{ e.event_label }}</span>
+                        <span class="archive-status">{{ status_labels.get(e.status, e.status) }}</span>
+                    </span>
+                    <span class="archive-foot">生成于 {{ e.generated_at }} · {{ e.generated_ago }}</span>
+                </span>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+    {% else %}
+    <div class="empty empty--page">
+        <h2 class="empty-title">没有匹配的存档</h2>
+        <p>当前筛选条件下没有找到综合图。可以放宽日期范围、切换为「全部」，或清空筛选重新浏览。</p>
+        <div class="empty-actions">
+            <a class="btn btn--primary" href="/history">清空筛选</a>
+            <a class="btn btn--ghost" href="/future">查看未来预报</a>
+        </div>
+    </div>
+    {% endif %}
+
+    {% endif %}
+</div>
+{% endblock %}

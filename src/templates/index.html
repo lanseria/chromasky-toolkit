@@ -1,135 +1,254 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="https://raw.githubusercontent.com/lanseria/chromasky-toolkit/refs/heads/main/docs/logo.svg" type="image/svg">
-    <title>火烧云指数预报 - 最新</title>
-    <style>
-        body { font-family: sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; padding: 2em; }
-        .container { max-width: 1200px; margin: auto; }
-        h1, h2 { color: #f39c12; border-bottom: 2px solid #333; padding-bottom: 10px; }
-        /* 让H1标题可被点击 */
-        h1 { cursor: pointer; user-select: none; /* 防止双击选中文本 */ } 
-        .header { margin-bottom: 2em; }
-        .header-main { display: flex; align-items: baseline; gap: 20px; }
-        .archive-link { font-size: 16px; text-decoration: none; color: #3498db; }
-        .archive-link:hover { text-decoration: underline; }
-        .group { background-color: #1e1e1e; border-radius: 8px; padding: 1.5em; margin-bottom: 2em; }
-        .composite-image img { max-width: 100%; height: auto; border-radius: 5px; }
-        h3 { color: #e0e0e0; margin-top: 1.5em; }
-        .individual-gallery { display: flex; flex-wrap: wrap; gap: 1em; }
-        .individual-item { text-align: center; }
-        .individual-item img { max-width: 250px; height: auto; border-radius: 5px; border: 1px solid #444; }
-        .individual-item p { margin-top: 0.5em; font-size: 0.9em; color: #aaa; }
-        /* 用于显示触发状态的消息 */
-        .status-message {
-            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            background-color: #2ecc71; color: white; padding: 10px 20px;
-            border-radius: 5px; box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-            opacity: 0; transition: opacity 0.5s ease-in-out; pointer-events: none;
-        }
-        .status-message.show { opacity: 1; }
-        .status-message.error { background-color: #e74c3c; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <div class="header-main">
-                <h1 id="mainTitle">火烧云指数预报 - 最新</h1>
-                <a class="archive-link" href="/archive">查看全部历史</a>
-            </div>
-        </div>
+{% extends "base.html" %}
 
-        {% if image_groups %}
-            {% for group in image_groups %}
-            <div class="group">
-                <h2>{{ group.group_title }}</h2>
-                <div class="composite-image">
-                    <a href="{{ group.composite_image.url }}" target="_blank">
-                        <img src="{{ group.composite_image.url }}" alt="{{ group.composite_image.title }}">
-                    </a>
+{% set hk = hero_kind or 'empty' %}
+{% set status_labels = {'upcoming': '未开始', 'live': '进行中', 'past': '已结束'} %}
+{% set next_list = next_events or [] %}
+{% set past_list = recent_past or [] %}
+
+{% block title %}{% if hk == 'empty' %}ChromaSky · 火烧云指数预报{% else %}{{ hero.date_label_full }} {{ hero.event_label }} · ChromaSky{% endif %}{% endblock %}
+
+{% block main %}
+<div class="wrap">
+
+    {% if hk == 'empty' %}
+    <section class="hero-empty" aria-labelledby="empty-title">
+        <div class="hero-empty-inner">
+            <svg class="empty-glyph" viewBox="0 0 240 128" aria-hidden="true" focusable="false">
+                <defs>
+                    <linearGradient id="empty-horizon" x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0" stop-color="#ff5d73"></stop>
+                        <stop offset=".5" stop-color="#ff8a3d"></stop>
+                        <stop offset="1" stop-color="#ffd166"></stop>
+                    </linearGradient>
+                </defs>
+                <circle cx="120" cy="84" r="28" fill="url(#empty-horizon)" opacity=".85"></circle>
+                <path d="M8 84h224" stroke="url(#empty-horizon)" stroke-width="1.5" opacity=".85"></path>
+                <path d="M30 100h180" stroke="#f3eee6" stroke-opacity=".2" stroke-width="1"></path>
+                <path d="M58 114h124" stroke="#f3eee6" stroke-opacity=".1" stroke-width="1"></path>
+            </svg>
+            <p class="kicker">等待第一张图</p>
+            <h1 class="hero-empty-title" id="empty-title">还没有可展示的预报</h1>
+            <p class="hero-empty-lead">后台尚未生成任何综合指数图。可以等待自动任务完成，也可以现在手动触发一次更新——完成后刷新页面即可看到新的霞光图。</p>
+            <div class="empty-actions">
+                <button type="button" class="btn btn--primary" data-trigger-job>
+                    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6"></path>
+                        <path d="M16.7 3.7v4.1h-4.1"></path>
+                    </svg>
+                    <span data-btn-label>更新预报</span>
+                </button>
+                <a class="btn btn--ghost" href="/history">历史存档</a>
+            </div>
+            <p class="fine">数据来源 GFS 云量 + CAMS 气溶胶 · 更新通常需要数分钟</p>
+        </div>
+    </section>
+    {% else %}
+
+    <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-grid">
+            <a class="plate plate--hero" href="{{ hero.image_url }}"
+               data-lightbox
+               data-lightbox-src="{{ hero.image_url }}"
+               data-lightbox-alt="{{ hero.image_title }}"
+               data-lightbox-caption="{{ hero.image_title }}"
+               aria-label="打开大图：{{ hero.image_title }}">
+                <span class="plate-media">
+                    <img src="{{ hero.image_url }}" alt="{{ hero.image_title }}" fetchpriority="high" decoding="async">
+                    <span class="plate-shade" aria-hidden="true"></span>
+                    <span class="plate-overlay">
+                        <span class="status status--{{ hero.status }}">
+                            <span class="status-dot" aria-hidden="true"></span>{{ status_labels.get(hero.status, hero.status) }}
+                        </span>
+                    </span>
+                </span>
+                <span class="plate-caption">
+                    <span>{{ hero.date_label_full }} · {{ hero.event_label }}</span>
+                    <span class="zoom-hint js-only">打开大图
+                        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M11.5 4.5h4v4"></path>
+                            <path d="M15.5 4.5L10 10"></path>
+                            <path d="M8.5 15.5h-4v-4"></path>
+                            <path d="M4.5 15.5L10 10"></path>
+                        </svg>
+                    </span>
+                </span>
+            </a>
+
+            <div class="hero-info">
+                <p class="kicker">{% if hk == 'live' %}正在发生 · Live{% elif hk == 'latest' %}最近一次 · Latest{% else %}下一场 · Next{% endif %}</p>
+
+                <div class="hero-heading">
+                    <h1 class="hero-title" id="hero-title">{{ hero.day_label }}</h1>
+                    <p class="hero-sub">
+                        <span class="chip chip--{{ hero.event }}">{{ hero.event_label }}</span>
+                        <span class="mono">{{ hero.date_label_full }}</span>
+                    </p>
                 </div>
 
-                {% if group.individual_images %}
-                <h3>对应的分时指数图</h3>
-                <div class="individual-gallery">
-                    {% for image in group.individual_images %}
-                    <div class="individual-item">
-                        <a href="{{ image.url }}" target="_blank">
-                            <img src="{{ image.url }}" alt="{{ image.title }}">
-                        </a>
-                        <p>{{ image.title }}</p>
+                <div class="window" data-countdown data-start="{{ hero.start_iso }}" data-end="{{ hero.end_iso }}" data-status="{{ hero.status }}" data-window="{{ hero.window_text }}">
+                    <span class="window-label" data-countdown-label>时间窗口</span>
+                    <span class="window-value" data-countdown-value>{{ hero.window_text }}</span>
+                    <span class="window-note" data-countdown-note>北京时间</span>
+                </div>
+
+                <p class="hero-meta">生成于 <span class="mono">{{ hero.generated_at }}</span> · {{ hero.generated_ago }}</p>
+
+                <div class="hero-actions">
+                    <a class="btn btn--primary" href="{{ hero.image_url }}"
+                       data-lightbox
+                       data-lightbox-src="{{ hero.image_url }}"
+                       data-lightbox-alt="{{ hero.image_title }}"
+                       data-lightbox-caption="{{ hero.image_title }}">查看大图</a>
+                    {% if hk == 'latest' %}
+                    <a class="btn btn--ghost" href="/history">浏览历史存档</a>
+                    {% else %}
+                    <a class="btn btn--ghost" href="/future">未来预报</a>
+                    {% endif %}
+                </div>
+
+                {% if hero_notice or hk == 'latest' %}
+                <div class="alert alert--warn" role="status">
+                    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="10" cy="10" r="7.2"></circle>
+                        <path d="M10 6.4v4.2"></path>
+                        <path d="M10 13.6h.01"></path>
+                    </svg>
+                    <div class="alert-body">
+                        <p>{% if hero_notice %}{{ hero_notice }}{% else %}未来预报尚未生成，当前展示最近一次可用的综合图。{% endif %}</p>
+                        <button type="button" class="link-btn" data-trigger-job><span data-btn-label>立即更新预报</span></button>
                     </div>
-                    {% endfor %}
                 </div>
                 {% endif %}
             </div>
+        </div>
+    </section>
+
+    <aside class="legend" aria-label="火烧云指数颜色图例">
+        <div class="legend-intro">
+            <p class="legend-title">读图 · 指数图例</p>
+            <p class="legend-note">颜色越向右越接近粉红，代表霞光越强；灰黑区域表示该处几乎不会有明显霞光。</p>
+        </div>
+        <div class="legend-scale">
+            <span class="legend-bar" aria-hidden="true"></span>
+            <span class="legend-ticks" aria-hidden="true">
+                <span>低</span><span>一般</span><span>好</span><span>很好</span><span>极佳</span>
+            </span>
+        </div>
+    </aside>
+
+    <section class="section" aria-labelledby="next-title">
+        <header class="section-head">
+            <div>
+                <p class="section-kicker"><span class="section-index">01</span>接下来</p>
+                <h2 class="section-title" id="next-title">未来几场霞光</h2>
+            </div>
+            <a class="link-more" href="/future">全部未来预报
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 10h11"></path>
+                    <path d="M10.5 5.5L15 10l-4.5 4.5"></path>
+                </svg>
+            </a>
+        </header>
+
+        {% if next_list %}
+        <div class="card-grid">
+            {% for e in next_list %}
+            <a class="event-card event-card--{{ e.status }}" href="{{ e.image_url }}"
+               data-lightbox
+               data-lightbox-src="{{ e.image_url }}"
+               data-lightbox-alt="{{ e.image_title }}"
+               data-lightbox-caption="{{ e.image_title }}"
+               aria-label="查看 {{ e.date_label }} {{ e.event_label }} 综合图">
+                <span class="card-media">
+                    <img src="{{ e.image_url }}" alt="{{ e.image_title }}" loading="lazy" decoding="async">
+                </span>
+                <span class="card-body">
+                    <span class="card-top">
+                        <span class="card-day">{{ e.day_label }}</span>
+                        <span class="chip chip--{{ e.event }}">{{ e.event_label }}</span>
+                    </span>
+                    <span class="card-date mono">{{ e.date_label_full }}</span>
+                    <span class="card-window">
+                        <span class="mono">{{ e.window_text }}</span>
+                        <span class="countdown-inline js-only" data-countdown data-start="{{ e.start_iso }}" data-end="{{ e.end_iso }}" data-status="{{ e.status }}" data-window="{{ e.window_text }}" aria-hidden="true"><span data-countdown-value></span></span>
+                    </span>
+                    <span class="card-foot">生成于 {{ e.generated_at }} · {{ e.generated_ago }}</span>
+                </span>
+            </a>
             {% endfor %}
+        </div>
         {% else %}
-            <p>暂无预报图片。请尝试手动触发更新或等待每日自动任务执行。</p>
+        <div class="empty">
+            <h3>暂无未来的场次</h3>
+            <p>后台还没有生成未来日出或日落的综合图。自动任务会持续补齐，也可以立即手动触发一次更新。</p>
+            <div class="empty-actions">
+                <a class="btn btn--ghost" href="/future">打开未来预报</a>
+                <button type="button" class="btn btn--quiet" data-trigger-job>
+                    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6"></path>
+                        <path d="M16.7 3.7v4.1h-4.1"></path>
+                    </svg>
+                    <span data-btn-label>更新预报</span>
+                </button>
+            </div>
+        </div>
         {% endif %}
-    </div>
+    </section>
 
-    <!-- 用于显示状态消息的元素 -->
-    <div id="statusMessage" class="status-message"></div>
+    <section class="section" aria-labelledby="recent-title">
+        <header class="section-head">
+            <div>
+                <p class="section-kicker"><span class="section-index">02</span>回看</p>
+                <h2 class="section-title" id="recent-title">近日回看</h2>
+            </div>
+            <a class="link-more" href="/history">历史存档
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 10h11"></path>
+                    <path d="M10.5 5.5L15 10l-4.5 4.5"></path>
+                </svg>
+            </a>
+        </header>
 
-    <script>
-        const mainTitle = document.getElementById('mainTitle');
-        const statusMessage = document.getElementById('statusMessage');
+        {% if past_list %}
+        <div class="card-grid card-grid--four">
+            {% for e in past_list %}
+            <a class="event-card event-card--past" href="{{ e.image_url }}"
+               data-lightbox
+               data-lightbox-src="{{ e.image_url }}"
+               data-lightbox-alt="{{ e.image_title }}"
+               data-lightbox-caption="{{ e.image_title }}"
+               aria-label="查看 {{ e.date_label }} {{ e.event_label }} 综合图">
+                <span class="card-media">
+                    <img src="{{ e.image_url }}" alt="{{ e.image_title }}" loading="lazy" decoding="async">
+                </span>
+                <span class="card-body">
+                    <span class="card-top">
+                        <span class="card-day">{{ e.date_label }}</span>
+                        <span class="chip chip--{{ e.event }}">{{ e.event_label }}</span>
+                    </span>
+                    <span class="card-window">
+                        <span class="mono">{{ e.window_text }}</span>
+                        <span class="card-status">{{ status_labels.get(e.status, e.status) }}</span>
+                    </span>
+                    <span class="card-foot">生成于 {{ e.generated_at }} · {{ e.generated_ago }}</span>
+                </span>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="empty">
+            <h3>还没有回看记录</h3>
+            <p>当预报窗口结束后，这里会出现最近几场已归档的霞光图。</p>
+            <a class="link-more" href="/history">浏览历史存档
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M4 10h11"></path>
+                    <path d="M10.5 5.5L15 10l-4.5 4.5"></path>
+                </svg>
+            </a>
+        </div>
+        {% endif %}
+    </section>
 
-        let clickCount = 0;
-        let lastClickTime = 0;
-
-        mainTitle.addEventListener('click', () => {
-            const now = new Date().getTime();
-            
-            // 如果两次点击间隔超过 500ms，则重置计数器
-            if (now - lastClickTime > 500) {
-                clickCount = 0;
-            }
-            
-            clickCount++;
-            lastClickTime = now;
-
-            if (clickCount === 3) {
-                // 重置计数器，防止再次触发
-                clickCount = 0;
-                triggerUpdate();
-            }
-        });
-
-        async function triggerUpdate() {
-            showStatus('正在触发后台更新任务...', 'info');
-
-            try {
-                const response = await fetch('/trigger-job', { method: 'POST' });
-                const data = await response.json();
-                
-                if (response.ok) {
-                    showStatus(data.message, 'success');
-                } else {
-                    showStatus(`错误: ${data.detail || '未知错误'}`, 'error');
-                }
-            } catch (error) {
-                showStatus(`请求失败: ${error}`, 'error');
-            }
-        }
-
-        function showStatus(message, type = 'success') {
-            statusMessage.textContent = message;
-            statusMessage.className = 'status-message'; // Reset classes
-            statusMessage.classList.add('show');
-            if (type === 'error') {
-                statusMessage.classList.add('error');
-            }
-
-            // 5秒后自动隐藏消息
-            setTimeout(() => {
-                statusMessage.classList.remove('show');
-            }, 5000);
-        }
-    </script>
-</body>
-</html>
+    {% endif %}
+</div>
+{% endblock %}

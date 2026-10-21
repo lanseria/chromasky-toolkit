@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+
+{% set status_labels = {'upcoming': '未开始', 'live': '进行中', 'past': '已结束'} %}
+{% set day_list = days or [] %}
+
+{% block title %}未来预报 · ChromaSky 火烧云指数{% endblock %}
+
+{% block main %}
+<div class="wrap">
+
+    <header class="page-head">
+        <div class="page-head-main">
+            <p class="kicker">未来预报 · Forecast</p>
+            <h1 class="page-title">接下来的霞光</h1>
+            <p class="page-lead">按日期列出未来 5 天内尚未结束的日出与日落场次。所有时间均为北京时间（Asia/Shanghai），地图覆盖中国大陆及周边海域。</p>
+        </div>
+        <div class="page-aside">
+            <p class="stat-inline"><span class="stat-value">{{ future_count }}</span><span class="stat-label">场待看</span></p>
+            <p class="fine">最近更新 {% if last_updated_text %}{{ last_updated_text }}{% else %}尚无记录{% endif %}{% if data_age_text %} · {{ data_age_text }}{% endif %}</p>
+            <button type="button" class="btn btn--quiet" data-trigger-job aria-label="更新预报，触发一次后台计算">
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6"></path>
+                    <path d="M16.7 3.7v4.1h-4.1"></path>
+                </svg>
+                <span data-btn-label>更新预报</span>
+            </button>
+        </div>
+    </header>
+
+    {% if hero_notice and day_list %}
+    <div class="alert alert--warn" role="status">
+        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10" cy="10" r="7.2"></circle>
+            <path d="M10 6.4v4.2"></path>
+            <path d="M10 13.6h.01"></path>
+        </svg>
+        <div class="alert-body"><p>{{ hero_notice }}</p></div>
+    </div>
+    {% endif %}
+
+    {% if day_list %}
+    {% for d in day_list %}
+    <section class="day-group{% if d.is_today %} day-group--today{% endif %}" aria-labelledby="day-{{ d.date }}">
+        <header class="day-head">
+            <div class="day-head-main">
+                <h2 class="day-date" id="day-{{ d.date }}">{{ d.date_label }}</h2>
+                {% if d.is_today %}
+                <span class="chip chip--today">今天</span>
+                {% elif d.day_label and d.day_label != d.date_label %}
+                <span class="chip chip--day">{{ d.day_label }}</span>
+                {% endif %}
+            </div>
+            <p class="day-count">{{ d.events | length }} 场 · 北京时间</p>
+        </header>
+
+        <div class="forecast-grid">
+            {% for e in d.events %}
+            <a class="event-card event-card--{{ e.status }}" href="{{ e.image_url }}"
+               data-lightbox
+               data-lightbox-src="{{ e.image_url }}"
+               data-lightbox-alt="{{ e.image_title }}"
+               data-lightbox-caption="{{ e.image_title }}"
+               aria-label="查看 {{ e.date_label }} {{ e.event_label }} 综合图">
+                <span class="card-media">
+                    <img src="{{ e.image_url }}" alt="{{ e.image_title }}" loading="lazy" decoding="async">
+                </span>
+                <span class="card-body">
+                    <span class="card-top">
+                        <span class="chip chip--{{ e.event }}">{{ e.event_label }}</span>
+                        <span class="status status--{{ e.status }}">
+                            <span class="status-dot" aria-hidden="true"></span>{{ status_labels.get(e.status, e.status) }}
+                        </span>
+                    </span>
+                    <span class="card-date mono">{{ e.date_label_full }} · {{ e.window_text }}</span>
+                    <span class="card-window">
+                        <span class="card-countdown js-only" data-countdown data-start="{{ e.start_iso }}" data-end="{{ e.end_iso }}" data-status="{{ e.status }}" data-window="{{ e.window_text }}" aria-hidden="true">
+                            <span class="countdown-prefix" data-countdown-label></span><span data-countdown-value></span>
+                        </span>
+                        <span class="card-timezone">北京时间</span>
+                    </span>
+                    <span class="card-foot">生成于 {{ e.generated_at }} · {{ e.generated_ago }}</span>
+                </span>
+            </a>
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+
+    <p class="page-foot-link"><a class="link-more" href="/history">查找更早的场次
+        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 10h11"></path>
+            <path d="M10.5 5.5L15 10l-4.5 4.5"></path>
+        </svg>
+    </a></p>
+
+    {% else %}
+    <div class="empty empty--page">
+        <svg class="empty-glyph empty-glyph--small" viewBox="0 0 240 128" aria-hidden="true" focusable="false">
+            <defs>
+                <linearGradient id="future-horizon" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0" stop-color="#ff5d73"></stop>
+                    <stop offset=".5" stop-color="#ff8a3d"></stop>
+                    <stop offset="1" stop-color="#ffd166"></stop>
+                </linearGradient>
+            </defs>
+            <circle cx="120" cy="84" r="28" fill="url(#future-horizon)" opacity=".8"></circle>
+            <path d="M8 84h224" stroke="url(#future-horizon)" stroke-width="1.5" opacity=".8"></path>
+            <path d="M30 100h180" stroke="#f3eee6" stroke-opacity=".18" stroke-width="1"></path>
+        </svg>
+        <h2 class="empty-title">暂无未来预报</h2>
+        <p>{% if hero_notice %}{{ hero_notice }}{% else %}后台还没有生成未来场次的综合图{% if not has_any_maps %}，当前也没有任何历史存档{% endif %}。自动任务会按周期补齐；如果刚部署完成，可以手动触发一次更新。{% endif %}</p>
+        <div class="empty-actions">
+            <button type="button" class="btn btn--primary" data-trigger-job>
+                <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6"></path>
+                    <path d="M16.7 3.7v4.1h-4.1"></path>
+                </svg>
+                <span data-btn-label>更新预报</span>
+            </button>
+            <a class="btn btn--ghost" href="/history">历史存档</a>
+            <a class="btn btn--ghost" href="/">返回首页</a>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

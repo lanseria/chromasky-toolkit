@@ -1,6 +1,7 @@
 # src/chromasky_toolkit/server.py
 
 import logging
+import mimetypes
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -10,12 +11,12 @@ from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI, Request, BackgroundTasks, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import xarray as xr
 
-from . import config
+from . import config, gallery
 from .astronomy import AstronomyService
 from .glow_index import GlowIndexCalculator
 from .main import run_full_workflow
@@ -25,7 +26,9 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger("ChromaSkyServer")
 
 # --- 定时任务逻辑 ---
-scheduler = AsyncIOScheduler()
+# 显式指定北京时区：容器默认可能是 UTC，cron 时刻会随之漂移。
+# 频率本身是每 3 小时一档，但让触发时刻稳定在北京时间更符合预期。
+scheduler = AsyncIOScheduler(timezone=ZoneInfo(config.LOCAL_TZ))
 
 
 def _ensure_runtime_assets() -> None:
@@ -90,6 +93,11 @@ async def lifespan(app: FastAPI):
     logger.info("服务器关闭，停止定时任务...")
     scheduler.shutdown()
 
+# --- 注册 WebP MIME 类型 ---
+# Windows 的注册表/MIME 数据库不一定认识 .webp，mimetypes 会回退成 text/plain，
+# 部分浏览器因此拒绝在 <img> 中渲染。显式注册，保证跨平台一致。
+mimetypes.add_type("image/webp", ".webp")
+
 # --- 创建 FastAPI 应用实例 ---
 app = FastAPI(lifespan=lifespan)
 
@@ -103,10 +111,133 @@ app.add_middleware(
 )
 
 # --- 挂载静态文件目录 ---
-app.mount("/static", StaticFiles(directory=config.OUTPUTS_DIR), name="static")
+# check_dir=False：目录缺失（如全新部署尚未产出 outputs/ 或前端 static/ 尚未就绪）
+# 时服务仍可正常启动，而不是在 import 阶段直接崩溃。
+app.mount(
+    "/static",
+    StaticFiles(directory=config.OUTPUTS_DIR, check_dir=False),
+    name="static",
+)
+app.mount(
+    "/assets",
+    StaticFiles(directory=config.PROJECT_ROOT / "static", check_dir=False),
+    name="assets",
+)
 
 # --- 设置模板引擎 ---
 templates = Jinja2Templates(directory=config.PROJECT_ROOT / "templates")
+
+
+# --- 数据装配辅助 ---
+def _load_gallery(now: datetime) -> tuple[list[dict], dict]:
+    """
+    扫描存档并返回 (事件列表, 公共上下文)。
+
+    同一份 now 同时传给扫描与上下文构造，保证状态判定一致。
+    """
+    events = gallery.scan_event_maps(now=now)
+    return events, gallery.build_common_context(events, now=now)
+
+
+# --- 今天是何时 ---
+@app.get("/", response_class=HTMLResponse)
+async def read_root(request: Request):
+    """
+    首页：最近的未来事件 Hero + 接下来列表 + 近日回看。
+
+    上下文严格按 docs/web-ui.md 第 5.1/5.2 节提供；没有未来预报时 Hero
+    由 gallery.select_hero 回退到最近一次存档（hero_kind="latest"）。
+    """
+    now = gallery.now_local()
+    events, common = _load_gallery(now)
+    home = gallery.build_home_context(events, now=now)
+    context = {"request": request, "page": "home", **common, **home}
+    return templates.TemplateResponse(request, "index.html", context)
+
+
+# --- 未来预报页 ---
+@app.get("/future", response_class=HTMLResponse)
+async def read_future(request: Request):
+    """未来预报：按天分组列出所有未结束事件（契约 5.3）。"""
+    now = gallery.now_local()
+    events, common = _load_gallery(now)
+    future = gallery.build_future_context(events, now=now)
+    context = {"request": request, "page": "future", **common, **future}
+    return templates.TemplateResponse(request, "future.html", context)
+
+
+# --- 历史存档页 ---
+@app.get("/history", response_class=HTMLResponse)
+async def read_history(
+    request: Request,
+    scope: str = Query("past", description="past / all / future"),
+    event: str = Query("all", description="all / sunrise / sunset"),
+    date_from: str = Query("", alias="from", description="起始日期 YYYY-MM-DD（含）"),
+    date_to: str = Query("", alias="to", description="结束日期 YYYY-MM-DD（含）"),
+    date_query: str = Query("", alias="date", description="精确日期；无存档时回退到最近一天"),
+    sort: str = Query("desc", description="desc / asc"),
+):
+    """
+    历史存档：筛选 + 按月分组 + 日期精确/最近查询（契约 5.4/5.5）。
+
+    非法筛选值不返回 4xx：scope/event/sort 回退默认值，非法日期写入 filters_error。
+    """
+    now = gallery.now_local()
+    events, common = _load_gallery(now)
+    history = gallery.build_history_context(
+        events,
+        scope=scope,
+        event=event,
+        date_from=date_from,
+        date_to=date_to,
+        target_date=date_query,
+        sort=sort,
+        now=now,
+    )
+    context = {"request": request, "page": "history", **common, **history}
+    return templates.TemplateResponse(request, "history.html", context)
+
+
+# --- 旧归档链接兼容 ---
+@app.get("/archive")
+async def read_archive():
+    """旧链接兼容：307 重定向到 /history。"""
+    return RedirectResponse(url="/history", status_code=307)
+
+
+# --- 事件列表 JSON API ---
+@app.get("/api/events", response_class=JSONResponse)
+async def api_events(
+    scope: Literal["all", "past", "future"] = Query("all", description="all / past / future"),
+    event: Literal["all", "sunrise", "sunset"] = Query("all", description="all / sunrise / sunset"),
+    date_from: str = Query("", alias="from", description="起始日期 YYYY-MM-DD（含）"),
+    date_to: str = Query("", alias="to", description="结束日期 YYYY-MM-DD（含）"),
+    date_query: str = Query("", alias="date", description="精确日期；无存档时回退到最近一天"),
+    limit: int = Query(50, ge=1, le=500, description="返回条数上限 1..500"),
+):
+    """
+    事件列表查询（契约第 6 节）。
+
+    返回 {"now", "count", "events"}；events 为按日期升序的事件对象，
+    count 为本次响应实际返回的条数（已应用 limit）。
+    """
+    now = gallery.now_local()
+    events = gallery.scan_event_maps(now=now)
+    matched = gallery.filter_events(
+        events,
+        scope=scope,
+        event=event,
+        date_from=date_from,
+        date_to=date_to,
+        target_date=date_query,
+        now=now,
+    )
+    matched = matched[:limit]
+    return {
+        "now": now.replace(microsecond=0).isoformat(),
+        "count": len(matched),
+        "events": matched,
+    }
 
 
 # --- 新增：API 端点，用于手动触发任务 ---
@@ -116,90 +247,6 @@ async def trigger_job_endpoint(background_tasks: BackgroundTasks):
     logger.info("====== [API] 接收到手动触发任务请求 ======")
     background_tasks.add_task(_run_scheduled_job)
     return {"message": "任务已在后台开始运行，将生成未来5天内所有日出日落事件。请稍后刷新页面查看结果。"}
-
-
-# --- 新的根路由 / ---
-@app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request):
-    """
-    主页：只显示最新的两个事件组的综合图和分时图。
-    """
-    image_groups = []
-    composite_dir = config.MAP_WEBP_OUTPUTS_DIR / "composite"
-
-    if composite_dir.exists():
-        # 1. 找到所有综合图并按名称（日期）降序排序，取最新的两个
-        all_composites = sorted(composite_dir.glob("*.webp"), reverse=True)
-        latest_composites = all_composites[:2]
-
-        for composite_path in latest_composites:
-            # 2. 从综合图文件名解析出日期和事件类型
-            # e.g., 'glow_index_composite_2025-08-21_sunset' -> '2025-08-21'
-            date_str = composite_path.stem.split('_')[-2]
-            
-            group_data = {
-                "group_title": f"预报 - {date_str}",
-                "composite_image": {
-                    "title": composite_path.stem,
-                    "url": f"/static/maps_webp/composite/{composite_path.name}"
-                },
-                "individual_images": []
-            }
-            
-            # 3. 根据日期查找对应的分时图
-            individual_dir = config.MAP_WEBP_OUTPUTS_DIR / "individual" / date_str
-            if individual_dir.exists():
-                for img_path in sorted(individual_dir.glob(f"*_{date_str}_*.webp")):
-                    group_data["individual_images"].append({
-                        "title": img_path.stem.replace("glow_index_", ""),
-                        "url": f"/static/maps_webp/individual/{date_str}/{img_path.name}"
-                    })
-            
-            image_groups.append(group_data)
-
-    return templates.TemplateResponse(
-        "index.html",
-        {"request": request, "image_groups": image_groups}
-    )
-
-
-# --- 新的归档路由 /archive ---
-@app.get("/archive", response_class=HTMLResponse)
-async def read_archive(request: Request):
-    """
-    归档页：展示所有生成的地图图片。
-    """
-    image_groups = []
-    
-    # 逻辑与旧版主页完全相同
-    composite_dir = config.MAP_WEBP_OUTPUTS_DIR / "composite"
-    if composite_dir.exists():
-        composite_images = []
-        for img_path in sorted(composite_dir.glob("*.webp"), reverse=True):
-            composite_images.append({
-                "title": img_path.stem,
-                "url": f"/static/maps_webp/composite/{img_path.name}"
-            })
-        if composite_images:
-            image_groups.append({"group_title": "综合最佳指数图", "images": composite_images})
-
-    individual_dir = config.MAP_WEBP_OUTPUTS_DIR / "individual"
-    if individual_dir.exists():
-        date_dirs = sorted([d for d in individual_dir.iterdir() if d.is_dir()], reverse=True)
-        for date_dir in date_dirs:
-            date_images = []
-            for img_path in sorted(date_dir.glob("*.webp")):
-                date_images.append({
-                    "title": img_path.stem.replace("glow_index_", ""),
-                    "url": f"/static/maps_webp/individual/{date_dir.name}/{img_path.name}"
-                })
-            if date_images:
-                image_groups.append({"group_title": f"分时指数图 - {date_dir.name}", "images": date_images})
-
-    return templates.TemplateResponse(
-        "archive.html",
-        {"request": request, "image_groups": image_groups}
-    )
 
 
 # --- 火烧云指数查询 API ---
