@@ -1,6 +1,6 @@
 
 <div align="center">
-  <img src="docs/logo.svg" alt="ChromaSky Toolkit Logo" width="150"/>
+  <img src="docs/logo.png" alt="ChromaSky Toolkit Logo" width="150"/>
   <h1>ChromaSky Toolkit ✨</h1>
   <p><strong>一个用于获取、处理并生成火烧云（晚霞/朝霞）指数地图的 Python 工具包。</strong></p>
   
